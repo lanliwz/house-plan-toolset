@@ -1,6 +1,8 @@
-# Single House Landscape Planner
+# House Plan Toolset
 
 Python project for planning landscaping around a single home on an irregular hillside parcel.
+
+Repository name: `house-plan-toolset`
 
 The repo is set up to work from:
 
