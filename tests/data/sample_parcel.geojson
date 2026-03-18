@@ -1,0 +1,25 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "parcel_id": "sample-001",
+        "address": "123 Hillside Lane"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [0.0, 0.0],
+            [24.0, 1.0],
+            [22.0, 13.0],
+            [11.0, 16.0],
+            [1.0, 11.0],
+            [0.0, 0.0]
+          ]
+        ]
+      }
+    }
+  ]
+}
