@@ -25,6 +25,7 @@ class ParcelSummary:
     source_path: Path
     geometry_type: str
     properties: dict[str, object]
+    source_boundary_points: list[tuple[float, float]]
     boundary_points: list[tuple[float, float]]
     metrics: ParcelMetrics
 

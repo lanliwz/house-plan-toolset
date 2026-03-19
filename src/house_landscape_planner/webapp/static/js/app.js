@@ -8,6 +8,8 @@ const state = {
 document.addEventListener("DOMContentLoaded", () => {
     setupTheme();
     setupTabs();
+    setupSectionToggles();
+    setupSplitters();
     setupForm();
     setupActions();
 });
@@ -33,6 +35,77 @@ function setupTabs() {
             document.getElementById(`${button.dataset.tab}-tab`).classList.add("active");
         });
     });
+}
+
+function setupSectionToggles() {
+    document.querySelectorAll("[data-section-toggle]").forEach((button) => {
+        button.addEventListener("click", () => {
+            const target = document.getElementById(button.dataset.sectionToggle);
+            if (!target) {
+                return;
+            }
+            const collapsed = target.classList.toggle("collapsed");
+            button.setAttribute("aria-expanded", String(!collapsed));
+        });
+    });
+}
+
+function setupSplitters() {
+    const leftPanel = document.querySelector(".left-panel");
+    const middlePanel = document.querySelector(".middle-panel");
+    const rightPanel = document.querySelector(".right-panel");
+    const leftSplitter = document.getElementById("left-splitter");
+    const rightSplitter = document.getElementById("right-splitter");
+
+    if (!leftPanel || !middlePanel || !rightPanel || !leftSplitter || !rightSplitter) {
+        return;
+    }
+
+    let activeSplitter = null;
+
+    const startDrag = (splitter) => {
+        if (window.innerWidth <= 860) {
+            return;
+        }
+        activeSplitter = splitter;
+        splitter.classList.add("dragging");
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+    };
+
+    const stopDrag = () => {
+        if (!activeSplitter) {
+            return;
+        }
+        activeSplitter.classList.remove("dragging");
+        activeSplitter = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+    };
+
+    const onDrag = (event) => {
+        if (!activeSplitter || window.innerWidth <= 860) {
+            return;
+        }
+
+        const container = document.querySelector(".main-content");
+        const rect = container.getBoundingClientRect();
+
+        if (activeSplitter === leftSplitter) {
+            const newWidth = Math.max(240, Math.min(520, event.clientX - rect.left));
+            leftPanel.style.width = `${newWidth}px`;
+        }
+
+        if (activeSplitter === rightSplitter) {
+            const newWidth = Math.max(260, Math.min(520, rect.right - event.clientX));
+            rightPanel.style.width = `${newWidth}px`;
+        }
+    };
+
+    leftSplitter.addEventListener("mousedown", () => startDrag(leftSplitter));
+    rightSplitter.addEventListener("mousedown", () => startDrag(rightSplitter));
+    window.addEventListener("mousemove", onDrag);
+    window.addEventListener("mouseup", stopDrag);
 }
 
 function setupForm() {
@@ -296,8 +369,7 @@ function buildSelectionSummary(item) {
             <p>${escapeHtml(item.description)}</p>
             <ul class="selection-list">
                 <li>Direction: ${escapeHtml(item.properties.direction)} (${escapeHtml(String(item.properties.bearing_degrees))}°)</li>
-                <li>Length: ${escapeHtml(formatNumber(item.properties.length))} ${escapeHtml(item.properties.linear_unit)}</li>
-                <li>From ${escapeHtml(item.start_vertex_id)} to ${escapeHtml(item.end_vertex_id)}</li>
+                <li>Length: ${escapeHtml(formatNumber(item.properties.length))} ${escapeHtml(item.properties.length_unit)}</li>
             </ul>
         `;
     }
@@ -306,8 +378,8 @@ function buildSelectionSummary(item) {
         <p>${escapeHtml(item.description)}</p>
         <ul class="selection-list">
             <li>Interior angle: ${escapeHtml(String(item.properties.interior_angle_degrees))}°</li>
-            <li>Previous edge: ${escapeHtml(item.properties.previous_edge)}</li>
-            <li>Next edge: ${escapeHtml(item.properties.next_edge)}</li>
+            <li>${item.properties.latitude !== undefined ? `Latitude: ${escapeHtml(String(item.properties.latitude))}` : `Source X: ${escapeHtml(String(item.properties.source_x))}`}</li>
+            <li>${item.properties.longitude !== undefined ? `Longitude: ${escapeHtml(String(item.properties.longitude))}` : `Source Y: ${escapeHtml(String(item.properties.source_y))}`}</li>
         </ul>
     `;
 }

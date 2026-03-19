@@ -92,6 +92,7 @@ def analyze_parcel(path: str | Path) -> ParcelSummary:
         source_path=Path(path).expanduser().resolve(),
         geometry_type=geometry_type,
         properties=feature.get("properties") or {},
+        source_boundary_points=points,
         boundary_points=metric_points,
         metrics=metrics,
     )
@@ -121,6 +122,10 @@ def _looks_like_lon_lat(points: list[tuple[float, float]]) -> bool:
         and abs(mean_x) > 20.0
         and abs(mean_y) > 20.0
     )
+
+
+def points_look_like_lon_lat(points: list[tuple[float, float]]) -> bool:
+    return _looks_like_lon_lat(points)
 
 
 def _project_lon_lat_to_feet(points: list[tuple[float, float]]) -> list[tuple[float, float]]:

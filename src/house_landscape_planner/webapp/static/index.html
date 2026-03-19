@@ -72,30 +72,33 @@
 
                 <div class="tab-content active" id="catalog-tab">
                     <div class="nav-section">
-                        <div class="nav-section-header">
+                        <button class="nav-section-header" data-section-toggle="parcel-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
                             <span class="section-title">Parcel</span>
                             <span class="section-count" id="parcel-count">0</span>
-                        </div>
+                        </button>
                         <div id="parcel-list" class="catalog-list">
                             <div class="placeholder">Load a parcel to populate the catalog.</div>
                         </div>
                     </div>
 
                     <div class="nav-section">
-                        <div class="nav-section-header">
+                        <button class="nav-section-header" data-section-toggle="edge-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
                             <span class="section-title">Edges</span>
                             <span class="section-count" id="edge-count">0</span>
-                        </div>
+                        </button>
                         <div id="edge-list" class="catalog-list">
                             <div class="placeholder">Boundary edges will appear here.</div>
                         </div>
                     </div>
 
                     <div class="nav-section">
-                        <div class="nav-section-header">
+                        <button class="nav-section-header" data-section-toggle="vertex-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
                             <span class="section-title">Vertices</span>
                             <span class="section-count" id="vertex-count">0</span>
-                        </div>
+                        </button>
                         <div id="vertex-list" class="catalog-list">
                             <div class="placeholder">Corner vertices will appear here.</div>
                         </div>
@@ -104,23 +107,27 @@
 
                 <div class="tab-content" id="notes-tab">
                     <div class="nav-section">
-                        <div class="nav-section-header">
+                        <button class="nav-section-header" data-section-toggle="assumptions-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
                             <span class="section-title">Assumptions</span>
-                        </div>
+                        </button>
                         <ul id="assumptions-list" class="bullet-list">
                             <li class="placeholder-line">No assumptions loaded yet.</li>
                         </ul>
                     </div>
                     <div class="nav-section">
-                        <div class="nav-section-header">
+                        <button class="nav-section-header" data-section-toggle="recommendations-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
                             <span class="section-title">Recommendations</span>
-                        </div>
+                        </button>
                         <ul id="recommendations-list" class="bullet-list">
                             <li class="placeholder-line">No recommendations loaded yet.</li>
                         </ul>
                     </div>
                 </div>
             </aside>
+
+            <div class="splitter" id="left-splitter" aria-hidden="true"></div>
 
             <section class="middle-panel">
                 <div class="panel-toolbar">
@@ -160,6 +167,8 @@
                     </div>
                 </article>
             </section>
+
+            <div class="splitter" id="right-splitter" aria-hidden="true"></div>
 
             <aside class="right-panel">
                 <div class="panel-toolbar side-toolbar">

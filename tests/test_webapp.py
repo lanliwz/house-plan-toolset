@@ -71,7 +71,8 @@ def test_analyze_endpoint_accepts_uploads() -> None:
     assert "Site Assessment" in payload["report_markdown"]
     assert "<svg" in payload["diagram_svg"]
     assert payload["objects"]["edges"][0]["properties"]["length"] == 20.0
-    assert payload["objects"]["vertices"][0]["properties"]["next_edge"] == "edge-1"
+    assert payload["objects"]["edges"][0]["properties"]["length_unit"] == "meters"
+    assert payload["objects"]["vertices"][0]["properties"]["source_x"] == 0.0
 
 
 def test_analyze_endpoint_rejects_invalid_geojson() -> None:

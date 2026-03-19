@@ -8,6 +8,7 @@ from fastapi import UploadFile
 from pydantic import BaseModel, Field
 
 from house_landscape_planner.analysis.site_diagram import render_site_diagram_svg
+from house_landscape_planner.analysis.parcel import points_look_like_lon_lat
 from house_landscape_planner.analysis.site_report import (
     create_site_assessment,
     render_markdown_report,
@@ -61,10 +62,6 @@ class EdgeObjectResponse(BaseModel):
     label: str
     subtitle: str
     description: str
-    start_vertex_id: str
-    end_vertex_id: str
-    start_point: tuple[float, float]
-    end_point: tuple[float, float]
     properties: dict[str, object]
 
 
@@ -74,7 +71,6 @@ class VertexObjectResponse(BaseModel):
     label: str
     subtitle: str
     description: str
-    point: tuple[float, float]
     properties: dict[str, object]
 
 
@@ -216,7 +212,7 @@ def build_edge_objects(
     points: list[tuple[float, float]],
     assessment: SiteAssessment,
 ) -> list[EdgeObjectResponse]:
-    unit = assessment.parcel.metrics.linear_unit
+    unit = display_linear_unit(assessment.parcel.metrics.linear_unit)
     edges: list[EdgeObjectResponse] = []
 
     for index, start_point in enumerate(points):
@@ -233,19 +229,11 @@ def build_edge_objects(
                 label=f"Edge {index + 1}",
                 subtitle=f"{length:.1f} {unit} toward {compass}",
                 description="Parcel boundary segment between two adjacent vertices.",
-                start_vertex_id=f"vertex-{index + 1}",
-                end_vertex_id=f"vertex-{((index + 1) % len(points)) + 1}",
-                start_point=start_point,
-                end_point=end_point,
                 properties={
                     "length": round(length, 3),
-                    "linear_unit": unit,
-                    "delta_x": round(dx, 3),
-                    "delta_y": round(dy, 3),
-                    "bearing_degrees": round(bearing, 2),
+                    "length_unit": unit,
                     "direction": compass,
-                    "start_point": point_dict(start_point),
-                    "end_point": point_dict(end_point),
+                    "bearing_degrees": round(bearing, 2),
                 },
             )
         )
@@ -257,30 +245,40 @@ def build_vertex_objects(
     edges: list[EdgeObjectResponse],
     assessment: SiteAssessment,
 ) -> list[VertexObjectResponse]:
-    unit = assessment.parcel.metrics.linear_unit
+    source_points = assessment.parcel.source_boundary_points[:-1]
+    has_gps = points_look_like_lon_lat(assessment.parcel.source_boundary_points)
     vertices: list[VertexObjectResponse] = []
 
     for index, point in enumerate(points):
         previous_point = points[index - 1]
         next_point = points[(index + 1) % len(points)]
         turn_angle = interior_angle(previous_point, point, next_point)
+        source_point = source_points[index]
+        coord_properties = (
+            {
+                "longitude": round(source_point[0], 8),
+                "latitude": round(source_point[1], 8),
+            }
+            if has_gps
+            else {
+                "source_x": round(source_point[0], 3),
+                "source_y": round(source_point[1], 3),
+            }
+        )
 
         vertices.append(
             VertexObjectResponse(
                 id=f"vertex-{index + 1}",
                 label=f"Vertex {index + 1}",
-                subtitle=f"({point[0]:.1f}, {point[1]:.1f})",
+                subtitle=(
+                    f"{coord_properties['latitude']}, {coord_properties['longitude']}"
+                    if has_gps
+                    else f"{coord_properties['source_x']}, {coord_properties['source_y']}"
+                ),
                 description="Parcel corner point connecting two boundary edges.",
-                point=point,
                 properties={
-                    "x": round(point[0], 3),
-                    "y": round(point[1], 3),
-                    "linear_unit": unit,
                     "interior_angle_degrees": round(turn_angle, 2),
-                    "previous_edge": edges[index - 1].id,
-                    "next_edge": edges[index].id,
-                    "previous_point": point_dict(previous_point),
-                    "next_point": point_dict(next_point),
+                    **coord_properties,
                 },
             )
         )
@@ -289,6 +287,12 @@ def build_vertex_objects(
 
 def point_dict(point: tuple[float, float]) -> dict[str, float]:
     return {"x": round(point[0], 3), "y": round(point[1], 3)}
+
+
+def display_linear_unit(linear_unit: str) -> str:
+    if linear_unit == "feet":
+        return "feet"
+    return "meters"
 
 
 def interior_angle(
