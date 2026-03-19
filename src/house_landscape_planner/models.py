@@ -8,6 +8,8 @@ from pathlib import Path
 class ParcelMetrics:
     area: float
     perimeter: float
+    area_unit: str
+    linear_unit: str
     centroid_x: float
     centroid_y: float
     width: float
@@ -15,6 +17,7 @@ class ParcelMetrics:
     aspect_ratio: float
     irregularity_index: float
     vertex_count: int
+    coordinate_system: str
 
 
 @dataclass(slots=True)
@@ -22,6 +25,7 @@ class ParcelSummary:
     source_path: Path
     geometry_type: str
     properties: dict[str, object]
+    boundary_points: list[tuple[float, float]]
     metrics: ParcelMetrics
 
 
@@ -35,8 +39,19 @@ class ImageSummary:
 
 
 @dataclass(slots=True)
+class ConceptZone:
+    name: str
+    intent: str
+    siting: str
+    moves: list[str]
+    target_share_percent: int
+
+
+@dataclass(slots=True)
 class SiteAssessment:
     parcel: ParcelSummary
     image: ImageSummary | None
+    assumptions: list[str]
+    concept_zones: list[ConceptZone]
     recommendations: list[str]
     next_data_to_collect: list[str]

@@ -14,6 +14,7 @@ It gives you a practical starting point for:
 - parcel geometry analysis
 - irregular-lot constraints review
 - hillside-specific landscape recommendations
+- a browser-based parcel review workflow
 - a repeatable site intake workflow for later expansion into grading, drainage, planting, access, and retaining-wall design
 
 ## Project Layout
@@ -27,21 +28,48 @@ It gives you a practical starting point for:
 - `tests/`
   - lightweight geometry tests
 
-## Quick Start
+## Web UI
 
-1. Create a virtual environment.
-2. Install the project in editable mode.
-3. Put your files into `data/input/`.
-4. Run the analyzer.
+The project now includes a FastAPI-based web UI inspired by the structure used in `neo4j-onto2ai-toolset`.
+
+Start it with:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-house-landscape analyze \
+uv sync
+uv run house-landscape serve --host 127.0.0.1 --port 8181
+```
+
+Then open `http://127.0.0.1:8181`.
+
+The web app lets you:
+
+- upload parcel GeoJSON and an optional satellite image
+- review parcel metrics, assumptions, and recommendations
+- inspect the generated concept zoning SVG
+- preview and download the markdown report
+
+## Quick Start
+
+1. Sync the project environment with `uv`.
+2. Put your files into `data/input/`.
+3. Run the analyzer.
+
+```bash
+uv sync
+uv run house-landscape analyze \
   --parcel data/input/parcel.geojson \
   --image data/input/site_satellite.jpg \
   --output data/output/site_report.md
+```
+
+## Development
+
+Common commands:
+
+```bash
+uv sync
+uv run pytest
+uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
 ## Expected Inputs

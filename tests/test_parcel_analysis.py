@@ -1,6 +1,8 @@
 import unittest
 
 from house_landscape_planner.analysis.parcel import compute_metrics
+from house_landscape_planner.analysis.site_diagram import render_site_diagram_svg
+from house_landscape_planner.analysis.site_report import create_site_assessment, render_markdown_report
 
 
 class ParcelAnalysisTest(unittest.TestCase):
@@ -49,6 +51,23 @@ class ParcelAnalysisTest(unittest.TestCase):
             irregular_metrics.irregularity_index,
             rectangle_metrics.irregularity_index,
         )
+
+    def test_report_includes_concept_zoning_section(self) -> None:
+        assessment = create_site_assessment("tests/data/sample_parcel.geojson")
+        report = render_markdown_report(assessment)
+
+        self.assertIn("## Concept Zoning Plan", report)
+        self.assertIn("### Primary Circulation Spine", report)
+        self.assertIn("## Design Assumptions", report)
+
+    def test_svg_diagram_contains_expected_layers(self) -> None:
+        assessment = create_site_assessment("tests/data/sample_parcel.geojson")
+        svg = render_site_diagram_svg(assessment)
+
+        self.assertIn("<svg", svg)
+        self.assertIn("Landscape Concept Diagram", svg)
+        self.assertIn("Primary Circulation Spine", svg)
+        self.assertIn("clipPath", svg)
 
 
 if __name__ == "__main__":

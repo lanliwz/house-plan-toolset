@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>House Plan Toolset</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css?v=2">
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.umd.min.js"></script>
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem("house-plan-theme") || "dark";
+            if (savedTheme === "light") {
+                document.documentElement.classList.add("light-mode");
+            }
+        })();
+    </script>
+</head>
+<body>
+    <div class="app-shell">
+        <header class="app-header">
+            <div class="header-copy">
+                <div class="brand-mark">HP</div>
+                <div>
+                    <p class="eyebrow">House Plan Toolset</p>
+                    <h1>Parcel Navigator</h1>
+                    <p class="header-text">Three-panel parcel review with catalog, interactive detail view, and property inspector.</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="load-sample" class="button secondary" type="button">Load sample parcel</button>
+                <button id="download-report" class="button secondary" type="button" disabled>Download report</button>
+                <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle theme">
+                    <span class="theme-dark">Dark</span>
+                    <span class="theme-light">Light</span>
+                </button>
+            </div>
+        </header>
+
+        <section class="intake-bar">
+            <form id="analysis-form" class="intake-form">
+                <label class="upload-field">
+                    <span>Parcel GeoJSON</span>
+                    <input id="parcel-file" name="parcel" type="file" accept=".json,.geojson,application/geo+json,application/json" required>
+                </label>
+                <label class="upload-field">
+                    <span>Site image</span>
+                    <input id="image-file" name="image" type="file" accept="image/*">
+                </label>
+                <div class="intake-actions">
+                    <button id="analyze-button" class="button primary" type="submit">Analyze</button>
+                    <button id="reset-button" class="button ghost" type="button">Clear</button>
+                </div>
+            </form>
+            <div class="status-bar">
+                <div class="status-pill">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">Ready for parcel analysis</span>
+                </div>
+                <div class="file-summary" id="file-summary">No files selected.</div>
+            </div>
+        </section>
+
+        <main class="main-content">
+            <aside class="left-panel">
+                <div class="panel-tabs">
+                    <button class="tab-btn active" data-tab="catalog">Catalog</button>
+                    <button class="tab-btn" data-tab="notes">Notes</button>
+                </div>
+
+                <div class="tab-content active" id="catalog-tab">
+                    <div class="nav-section">
+                        <div class="nav-section-header">
+                            <span class="section-title">Parcel</span>
+                            <span class="section-count" id="parcel-count">0</span>
+                        </div>
+                        <div id="parcel-list" class="catalog-list">
+                            <div class="placeholder">Load a parcel to populate the catalog.</div>
+                        </div>
+                    </div>
+
+                    <div class="nav-section">
+                        <div class="nav-section-header">
+                            <span class="section-title">Edges</span>
+                            <span class="section-count" id="edge-count">0</span>
+                        </div>
+                        <div id="edge-list" class="catalog-list">
+                            <div class="placeholder">Boundary edges will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="nav-section">
+                        <div class="nav-section-header">
+                            <span class="section-title">Vertices</span>
+                            <span class="section-count" id="vertex-count">0</span>
+                        </div>
+                        <div id="vertex-list" class="catalog-list">
+                            <div class="placeholder">Corner vertices will appear here.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="notes-tab">
+                    <div class="nav-section">
+                        <div class="nav-section-header">
+                            <span class="section-title">Assumptions</span>
+                        </div>
+                        <ul id="assumptions-list" class="bullet-list">
+                            <li class="placeholder-line">No assumptions loaded yet.</li>
+                        </ul>
+                    </div>
+                    <div class="nav-section">
+                        <div class="nav-section-header">
+                            <span class="section-title">Recommendations</span>
+                        </div>
+                        <ul id="recommendations-list" class="bullet-list">
+                            <li class="placeholder-line">No recommendations loaded yet.</li>
+                        </ul>
+                    </div>
+                </div>
+            </aside>
+
+            <section class="middle-panel">
+                <div class="panel-toolbar">
+                    <div>
+                        <p class="eyebrow">Detail</p>
+                        <h2 id="detail-title">Parcel detail view</h2>
+                        <p class="detail-subtitle" id="detail-subtitle">Select a parcel object from the left panel or the diagram.</p>
+                    </div>
+                    <div class="detail-tags" id="detail-tags">
+                        <span class="detail-chip">No object selected</span>
+                    </div>
+                </div>
+
+                <div class="detail-canvas" id="detail-canvas">
+                    <div class="placeholder">Interactive parcel diagram will appear here.</div>
+                </div>
+
+                <div class="middle-bottom">
+                    <article class="detail-card">
+                        <h3>Selection Summary</h3>
+                        <div id="selection-summary" class="detail-copy">
+                            <p class="placeholder-line">Selection-specific notes will appear here.</p>
+                        </div>
+                    </article>
+                    <article class="detail-card">
+                        <h3>Zones And Follow-up Data</h3>
+                        <div id="zones-summary" class="detail-copy">
+                            <p class="placeholder-line">Concept zones and next data steps will appear here.</p>
+                        </div>
+                    </article>
+                </div>
+
+                <article class="detail-card report-card">
+                    <h3>Markdown Report Preview</h3>
+                    <div id="report-preview" class="markdown-preview">
+                        <p class="placeholder-line">The generated markdown report will render here.</p>
+                    </div>
+                </article>
+            </section>
+
+            <aside class="right-panel">
+                <div class="panel-toolbar side-toolbar">
+                    <div>
+                        <p class="eyebrow">Properties</p>
+                        <h2 id="properties-title">Inspector</h2>
+                    </div>
+                </div>
+
+                <article class="property-card">
+                    <h3>Selected Object</h3>
+                    <dl id="properties-list" class="properties-list">
+                        <div class="placeholder-line">Select an object to inspect its values.</div>
+                    </dl>
+                </article>
+
+                <article class="property-card">
+                    <h3>Parcel Snapshot</h3>
+                    <div id="metrics-grid" class="metrics-grid">
+                        <div class="placeholder">Parcel metrics will appear here after analysis.</div>
+                    </div>
+                </article>
+            </aside>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js?v=2"></script>
+</body>
+</html>
