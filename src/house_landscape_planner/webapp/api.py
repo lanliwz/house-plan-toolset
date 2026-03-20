@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi import UploadFile
 from pydantic import BaseModel, Field
+from onto2ai_parcel.staging.pydantic_parcel_model import BoundaryVertex, Parcel, PolygonGeometry
 
 from house_landscape_planner.analysis.site_diagram import render_site_diagram_svg
-from house_landscape_planner.analysis.parcel import points_look_like_lon_lat
 from house_landscape_planner.analysis.site_report import (
     create_site_assessment,
     render_markdown_report,
@@ -182,17 +183,21 @@ def serialize_site_objects(
 ) -> SiteObjectsResponse:
     boundary_points = assessment.parcel.boundary_points
     open_points = boundary_points[:-1] if len(boundary_points) > 1 else list(boundary_points)
+    parcel_model = build_onto2ai_parcel_model(assessment, parcel_name=parcel_name)
     edges = build_edge_objects(open_points, assessment)
-    vertices = build_vertex_objects(open_points, edges, assessment)
+    vertices = build_vertex_objects(open_points, assessment, parcel_model)
 
     metrics = assessment.parcel.metrics
     parcel = ParcelObjectResponse(
         id="parcel",
         kind="parcel",
-        label=parcel_name,
-        subtitle=f"{assessment.parcel.geometry_type} with {metrics.vertex_count} vertices",
+        label=parcel_model.full_address_text or parcel_name,
+        subtitle=f"{assessment.parcel.geometry_type} with {metrics.vertex_count} vertices | Parcel ID {parcel_model.parcel_id}",
         description="Primary parcel object. Select edges or vertices to inspect individual geometry segments.",
         properties={
+            "parcel_id": parcel_model.parcel_id,
+            "parcel_identifier": parcel_model.parcel_identifier,
+            "full_address_text": parcel_model.full_address_text,
             "geometry_type": assessment.parcel.geometry_type,
             "area": round(metrics.area, 3),
             "area_unit": metrics.area_unit,
@@ -203,6 +208,7 @@ def serialize_site_objects(
             "coordinate_system": metrics.coordinate_system,
             "edge_count": len(edges),
             "vertex_count": len(vertices),
+            **assessment.parcel.properties,
         },
     )
     return SiteObjectsResponse(parcel=parcel, edges=edges, vertices=vertices)
@@ -242,51 +248,90 @@ def build_edge_objects(
 
 def build_vertex_objects(
     points: list[tuple[float, float]],
-    edges: list[EdgeObjectResponse],
     assessment: SiteAssessment,
+    parcel_model: Parcel,
 ) -> list[VertexObjectResponse]:
-    source_points = assessment.parcel.source_boundary_points[:-1]
-    has_gps = points_look_like_lon_lat(assessment.parcel.source_boundary_points)
+    boundary_vertices = parcel_model.has_parcel_geometry[0].has_boundary_vertex
     vertices: list[VertexObjectResponse] = []
 
     for index, point in enumerate(points):
         previous_point = points[index - 1]
         next_point = points[(index + 1) % len(points)]
         turn_angle = interior_angle(previous_point, point, next_point)
-        source_point = source_points[index]
-        coord_properties = (
-            {
-                "longitude": round(source_point[0], 8),
-                "latitude": round(source_point[1], 8),
-            }
-            if has_gps
-            else {
-                "source_x": round(source_point[0], 3),
-                "source_y": round(source_point[1], 3),
-            }
-        )
+        boundary_vertex = boundary_vertices[index]
+        latitude = float(boundary_vertex.latitude)
+        longitude = float(boundary_vertex.longitude)
 
         vertices.append(
             VertexObjectResponse(
                 id=f"vertex-{index + 1}",
                 label=f"Vertex {index + 1}",
-                subtitle=(
-                    f"{coord_properties['latitude']}, {coord_properties['longitude']}"
-                    if has_gps
-                    else f"{coord_properties['source_x']}, {coord_properties['source_y']}"
-                ),
+                subtitle=f"{latitude:.6f}, {longitude:.6f}",
                 description="Parcel corner point connecting two boundary edges.",
                 properties={
+                    "gps_coordinate_id": boundary_vertex.gps_coordinate_id,
+                    "vertex_sequence_number": boundary_vertex.vertex_sequence_number,
                     "interior_angle_degrees": round(turn_angle, 2),
-                    **coord_properties,
+                    "latitude": round(latitude, 8),
+                    "longitude": round(longitude, 8),
                 },
             )
         )
     return vertices
 
 
-def point_dict(point: tuple[float, float]) -> dict[str, float]:
-    return {"x": round(point[0], 3), "y": round(point[1], 3)}
+def build_onto2ai_parcel_model(
+    assessment: SiteAssessment,
+    *,
+    parcel_name: str,
+) -> Parcel:
+    source_points = assessment.parcel.source_boundary_points[:-1]
+    source_properties = assessment.parcel.properties
+    parcel_key = sanitize_identifier(
+        str(
+            source_properties.get("PARCELID")
+            or source_properties.get("parcel_id")
+            or Path(parcel_name).stem
+        )
+    )
+
+    boundary_vertices = [
+        BoundaryVertex(
+            gps_coordinate_id=f"{parcel_key}-vertex-{index}",
+            latitude=Decimal(str(point[1])),
+            longitude=Decimal(str(point[0])),
+            vertex_sequence_number=index,
+        )
+        for index, point in enumerate(source_points, start=1)
+    ]
+    polygon = PolygonGeometry(
+        geometry_id=f"{parcel_key}-geometry-1",
+        coordinate_sequence_text=" | ".join(f"{point[0]},{point[1]}" for point in source_points),
+        has_boundary_vertex=boundary_vertices,
+    )
+
+    return Parcel(
+        parcel_id=str(source_properties.get("PARCELID") or source_properties.get("parcel_id") or parcel_key),
+        parcel_identifier=(
+            str(source_properties.get("OBJECTID"))
+            if source_properties.get("OBJECTID") not in {None, ""}
+            else None
+        ),
+        full_address_text=(
+            str(source_properties.get("FULLADDRESS"))
+            if source_properties.get("FULLADDRESS") not in {None, ""}
+            else (
+                str(source_properties.get("address"))
+                if source_properties.get("address") not in {None, ""}
+                else None
+            )
+        ),
+        has_parcel_geometry=[polygon],
+    )
+
+
+def sanitize_identifier(value: str) -> str:
+    return "".join(char.lower() if char.isalnum() else "-" for char in value).strip("-")
 
 
 def display_linear_unit(linear_unit: str) -> str:

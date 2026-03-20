@@ -36,6 +36,8 @@ def test_sample_analysis_endpoint_returns_report_payload() -> None:
     assert "diagram_svg" in payload
     assert payload["metrics"]["vertex_count"] >= 4
     assert payload["objects"]["parcel"]["id"] == "parcel"
+    assert payload["objects"]["parcel"]["properties"]["parcel_id"] == "sample-001"
+    assert payload["objects"]["parcel"]["properties"]["full_address_text"] == "123 Hillside Lane"
     assert len(payload["objects"]["edges"]) == payload["metrics"]["vertex_count"]
     assert len(payload["objects"]["vertices"]) == payload["metrics"]["vertex_count"]
 
@@ -72,7 +74,9 @@ def test_analyze_endpoint_accepts_uploads() -> None:
     assert "<svg" in payload["diagram_svg"]
     assert payload["objects"]["edges"][0]["properties"]["length"] == 20.0
     assert payload["objects"]["edges"][0]["properties"]["length_unit"] == "meters"
-    assert payload["objects"]["vertices"][0]["properties"]["source_x"] == 0.0
+    assert payload["objects"]["parcel"]["properties"]["full_address_text"] == "456 Terrace View"
+    assert payload["objects"]["vertices"][0]["properties"]["gps_coordinate_id"] == "parcel-vertex-1"
+    assert payload["objects"]["vertices"][0]["properties"]["longitude"] == 0.0
 
 
 def test_analyze_endpoint_rejects_invalid_geojson() -> None:
