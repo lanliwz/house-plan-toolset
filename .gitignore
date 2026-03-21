@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
+.idea/
+*.egg-info/
+build/
+dist/
 
 data/input/*
 data/output/*

@@ -16,6 +16,7 @@ The loader in this project:
   - `GeoJSONFeatureCollection`
 - applies the packaged parcel Neo4j constraints
 - loads dataset nodes and materialized relationships into a Neo4j database
+- feeds the default parcel catalog used by the web UI
 
 Default target database:
 
@@ -29,6 +30,10 @@ Default target database:
   [src/house_landscape_planner/cli.py](/Users/weizhang/github/house-plan-toolset/src/house_landscape_planner/cli.py)
 - Example parcel input:
   [data/input/parcel_62n.geojson](/Users/weizhang/github/house-plan-toolset/data/input/parcel_62n.geojson)
+- Web UI API:
+  [src/house_landscape_planner/webapp/main.py](/Users/weizhang/github/house-plan-toolset/src/house_landscape_planner/webapp/main.py)
+- Web UI client:
+  [src/house_landscape_planner/webapp/static/js/app.js](/Users/weizhang/github/house-plan-toolset/src/house_landscape_planner/webapp/static/js/app.js)
 
 ## Environment
 
@@ -80,6 +85,32 @@ Example result:
   "parcel_count": 1,
   "vertex_count": 8
 }
+```
+
+## Web UI Integration
+
+The web UI now reads parcel data from Neo4j by default.
+
+Default database:
+
+- `hp62n`
+
+Relevant API routes:
+
+- `GET /api/neo4j/parcels`
+- `GET /api/neo4j/parcels/{parcel_id}`
+
+Typical flow:
+
+1. Load parcel GeoJSON into `hp62n`.
+2. Start the web UI.
+3. Open the parcel selector in the intake bar.
+4. Load a parcel directly from Neo4j.
+
+Start the UI:
+
+```bash
+uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
 ## Optional Flags

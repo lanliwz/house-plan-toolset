@@ -7,14 +7,13 @@ Repository name: `house-plan-toolset`
 The repo is set up to work from:
 
 - a parcel boundary GeoJSON file
-- a satellite image of the house and yard
 
 It gives you a practical starting point for:
 
 - parcel geometry analysis
 - irregular-lot constraints review
 - hillside-specific landscape recommendations
-- a browser-based parcel review workflow
+- a Neo4j-backed browser parcel review workflow
 - a repeatable site intake workflow for later expansion into grading, drainage, planting, access, and retaining-wall design
 
 ## Project Layout
@@ -22,7 +21,7 @@ It gives you a practical starting point for:
 - `src/house_landscape_planner/`
   - core package
 - `data/input/`
-  - place your parcel GeoJSON and satellite image here
+  - place your parcel GeoJSON here
 - `data/output/`
   - generated planning reports
 - `tests/`
@@ -31,6 +30,7 @@ It gives you a practical starting point for:
 ## Web UI
 
 The project now includes a FastAPI-based web UI inspired by the structure used in `neo4j-onto2ai-toolset`.
+It defaults to reading parcel data from the Neo4j `hp62n` database and also supports loading a local GeoJSON file from the browser.
 
 Start it with:
 
@@ -43,23 +43,29 @@ Then open `http://127.0.0.1:8181`.
 
 The web app lets you:
 
-- upload parcel GeoJSON and an optional satellite image
-- review parcel metrics, assumptions, and recommendations
-- inspect the generated concept zoning SVG
-- preview and download the markdown report
+- browse parcels from Neo4j database `hp62n` by default
+- load a selected local parcel GeoJSON file with the `Load` action
+- review parcel metrics, assumptions, recommendations, and parcel properties
+- inspect the interactive parcel detail view with parcel, edge, and vertex objects
+- preview and download the generated markdown report
+
+Loader documentation:
+
+- [README4LOADER.md](/Users/weizhang/github/house-plan-toolset/README4LOADER.md)
 
 ## Quick Start
 
 1. Sync the project environment with `uv`.
 2. Put your files into `data/input/`.
-3. Run the analyzer.
+3. Load the parcel into Neo4j.
+4. Start the web UI.
 
 ```bash
 uv sync
-uv run house-landscape analyze \
-  --parcel data/input/parcel.geojson \
-  --image data/input/site_satellite.jpg \
-  --output data/output/site_report.md
+uv run house-landscape load-neo4j \
+  --parcel data/input/parcel_62n.geojson \
+  --database hp62n
+uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
 ## Development
@@ -68,7 +74,8 @@ Common commands:
 
 ```bash
 uv sync
-uv run pytest
+uv run python -m pytest
+uv run house-landscape load-neo4j --parcel data/input/parcel_62n.geojson --database hp62n
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
@@ -80,10 +87,6 @@ uv run house-landscape serve --host 127.0.0.1 --port 8181
 - the first polygon ring is used as the parcel boundary
 - parcel properties are preserved in the report
 
-### Satellite Image
-
-- any image that Pillow can read, such as `.jpg`, `.jpeg`, `.png`, `.tif`, or `.tiff`
-
 ## Current Analysis
 
 The generated report currently includes:
@@ -91,10 +94,10 @@ The generated report currently includes:
 - parcel area, perimeter, bounding box, and centroid
 - an irregularity score based on shape compactness
 - a simple steep-site planning checklist tailored to hillside residential landscaping
-- image metadata summary
 - suggested next data to collect for more accurate hillside design
 
 ## Notes
 
-- Satellite imagery alone cannot reliably calculate slope. For real grading and retaining-wall decisions, add topographic contours, survey points, or DEM/LiDAR data in a later phase.
-- This starter repo is intentionally lightweight so we can extend it around your actual parcel and image once those files are in place.
+- The Neo4j web flow expects parcel data loaded with the Onto2AI parcel-model loader into `hp62n`.
+- If you use browser file loading instead of Neo4j, the UI will analyze the selected GeoJSON directly without writing to the database.
+- This starter repo is intentionally lightweight so we can extend it around your actual parcel data once those files are in place.
