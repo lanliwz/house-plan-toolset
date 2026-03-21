@@ -5,6 +5,7 @@ from io import BytesIO
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from house_landscape_planner.analysis.site_report import create_site_assessment
 from house_landscape_planner.webapp.main import app
 
 
@@ -40,6 +41,32 @@ def test_sample_analysis_endpoint_returns_report_payload() -> None:
     assert payload["objects"]["parcel"]["properties"]["full_address_text"] == "123 Hillside Lane"
     assert len(payload["objects"]["edges"]) == payload["metrics"]["vertex_count"]
     assert len(payload["objects"]["vertices"]) == payload["metrics"]["vertex_count"]
+
+
+def test_neo4j_catalog_endpoint(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "house_landscape_planner.webapp.main.list_parcels_from_neo4j",
+        lambda database="hp62n": [
+            type("ParcelItem", (), {"parcel_id": "p-1", "label": "62 North Country Road", "vertex_count": 8, "uri": "urn:test"})()
+        ],
+    )
+
+    response = client.get("/api/neo4j/parcels")
+
+    assert response.status_code == 200
+    assert response.json()[0]["parcel_id"] == "p-1"
+
+
+def test_neo4j_parcel_endpoint_returns_site_assessment(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "house_landscape_planner.webapp.main.create_site_assessment_from_neo4j",
+        lambda parcel_id, database="hp62n": create_site_assessment("tests/data/sample_parcel.geojson"),
+    )
+
+    response = client.get("/api/neo4j/parcels/p-1")
+
+    assert response.status_code == 200
+    assert response.json()["parcel_name"] == "p-1"
 
 
 def test_analyze_endpoint_accepts_uploads() -> None:

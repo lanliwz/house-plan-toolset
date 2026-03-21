@@ -1,5 +1,6 @@
 const state = {
     assessment: null,
+    neo4jParcels: [],
     selectedKind: "parcel",
     selectedId: "parcel",
     reportMarkdown: "",
@@ -12,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupSplitters();
     setupForm();
     setupActions();
+    loadNeo4jParcelOptions();
 });
 
 function setupTheme() {
@@ -111,14 +113,12 @@ function setupSplitters() {
 function setupForm() {
     const form = document.getElementById("analysis-form");
     const parcelInput = document.getElementById("parcel-file");
-    const imageInput = document.getElementById("image-file");
 
     parcelInput.addEventListener("change", updateFileSummary);
-    imageInput.addEventListener("change", updateFileSummary);
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        await analyzeCurrentFiles();
+        await loadCurrentFile();
     });
 
     document.getElementById("reset-button").addEventListener("click", () => {
@@ -135,26 +135,22 @@ function setupForm() {
 }
 
 function setupActions() {
-    document.getElementById("load-sample").addEventListener("click", loadSampleAnalysis);
     document.getElementById("download-report").addEventListener("click", downloadReport);
+    document.getElementById("load-neo4j").addEventListener("click", loadSelectedNeo4jParcel);
 }
 
 async function analyzeCurrentFiles() {
     const parcelFile = document.getElementById("parcel-file").files[0];
-    const imageFile = document.getElementById("image-file").files[0];
 
     if (!parcelFile) {
-        updateStatus("Choose a parcel GeoJSON before analyzing.", true);
+        updateStatus("Choose a parcel GeoJSON before loading.", true);
         return;
     }
 
     const formData = new FormData();
     formData.append("parcel", parcelFile);
-    if (imageFile) {
-        formData.append("image", imageFile);
-    }
 
-    updateStatus("Analyzing parcel, edges, and vertices...", false);
+    updateStatus("Loading parcel, edges, and vertices...", false);
 
     try {
         const response = await fetch("/api/analyze", {
@@ -163,25 +159,72 @@ async function analyzeCurrentFiles() {
         });
         const payload = await response.json();
         if (!response.ok) {
-            throw new Error(payload.detail || "Analysis failed.");
+            throw new Error(payload.detail || "Load failed.");
         }
         applyAssessment(payload);
-        updateStatus(`Analysis complete for ${payload.parcel_name}.`, false);
+        updateStatus(`Loaded ${payload.parcel_name}.`, false);
     } catch (error) {
         updateStatus(error.message, true);
     }
 }
 
-async function loadSampleAnalysis() {
-    updateStatus("Loading bundled sample parcel...", false);
+async function loadCurrentFile() {
+    await analyzeCurrentFiles();
+}
+
+async function loadNeo4jParcelOptions() {
+    const select = document.getElementById("neo4j-parcel-select");
+    const database = document.getElementById("database-name").value || "hp62n";
+    updateStatus(`Loading parcel catalog from ${database}...`, false);
     try {
-        const response = await fetch("/api/sample");
+        const response = await fetch(`/api/neo4j/parcels?database=${encodeURIComponent(database)}`);
         const payload = await response.json();
         if (!response.ok) {
-            throw new Error(payload.detail || "Unable to load sample parcel.");
+            throw new Error(payload.detail || "Unable to load parcel catalog.");
+        }
+        state.neo4jParcels = payload;
+        renderNeo4jParcelOptions();
+        if (payload.length) {
+            select.value = payload[0].parcel_id;
+            await loadSelectedNeo4jParcel();
+        } else {
+            updateStatus(`No parcels found in ${database}.`, true);
+        }
+    } catch (error) {
+        updateStatus(error.message, true);
+        select.innerHTML = '<option value="">No parcels available</option>';
+    }
+}
+
+function renderNeo4jParcelOptions() {
+    const select = document.getElementById("neo4j-parcel-select");
+    if (!state.neo4jParcels.length) {
+        select.innerHTML = '<option value="">No parcels available</option>';
+        return;
+    }
+    select.innerHTML = state.neo4jParcels.map((item) => (
+        `<option value="${escapeHtml(item.parcel_id)}">${escapeHtml(item.label)} (${item.vertex_count} vertices)</option>`
+    )).join("");
+}
+
+async function loadSelectedNeo4jParcel() {
+    const select = document.getElementById("neo4j-parcel-select");
+    const parcelId = select.value;
+    const database = document.getElementById("database-name").value || "hp62n";
+    if (!parcelId) {
+        updateStatus("Choose a Neo4j parcel first.", true);
+        return;
+    }
+
+    updateStatus(`Loading ${parcelId} from ${database}...`, false);
+    try {
+        const response = await fetch(`/api/neo4j/parcels/${encodeURIComponent(parcelId)}?database=${encodeURIComponent(database)}`);
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.detail || "Unable to load parcel from Neo4j.");
         }
         applyAssessment(payload);
-        updateStatus(`Sample analysis ready for ${payload.parcel_name}.`, false);
+        updateStatus(`Loaded ${parcelId} from ${database}.`, false);
     } catch (error) {
         updateStatus(error.message, true);
     }
@@ -341,7 +384,7 @@ function buildDetailTags(item) {
     const tags = [`<span class="detail-chip">${escapeHtml(item.kind)}</span>`];
     if (item.kind === "parcel") {
         tags.push(`<span class="detail-chip">${escapeHtml(state.assessment.geometry_type)}</span>`);
-        tags.push(`<span class="detail-chip">${escapeHtml(formatNumber(state.assessment.metrics.area))} ${escapeHtml(state.assessment.metrics.area_unit)}</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(state.assessment.metrics.area, state.assessment.metrics.area_unit))}</span>`);
     } else if (item.kind === "edge") {
         tags.push(`<span class="detail-chip">${escapeHtml(formatNumber(item.properties.length))} ${escapeHtml(item.properties.linear_unit)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.direction)}</span>`);
@@ -389,7 +432,7 @@ function renderProperties(item) {
     const entries = Object.entries(item.properties || {});
     const properties = document.getElementById("properties-list");
     properties.innerHTML = entries.map(([key, value]) => (
-        `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(stringifyValue(value))}</dd>`
+        `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(formatPropertyValue(key, value, item.properties || {}))}</dd>`
     )).join("");
 }
 
@@ -397,7 +440,7 @@ function renderMetricSnapshot() {
     const data = state.assessment;
     const imageLabel = data.image ? `${data.image.width_px} x ${data.image.height_px}` : "No image";
     const cards = [
-        metricCard("Area", `${formatNumber(data.metrics.area)} ${data.metrics.area_unit}`),
+        metricCard("Area", formatAreaValue(data.metrics.area, data.metrics.area_unit)),
         metricCard("Perimeter", `${formatNumber(data.metrics.perimeter)} ${data.metrics.linear_unit}`),
         metricCard("Irregularity", data.metrics.irregularity_index.toFixed(3)),
         metricCard("Vertices", String(data.metrics.vertex_count)),
@@ -460,22 +503,14 @@ function metricCard(label, value) {
 
 function updateFileSummary() {
     const parcelFile = document.getElementById("parcel-file").files[0];
-    const imageFile = document.getElementById("image-file").files[0];
     const summary = document.getElementById("file-summary");
 
-    if (!parcelFile && !imageFile) {
+    if (!parcelFile) {
         summary.textContent = "No files selected.";
         return;
     }
 
-    const parts = [];
-    if (parcelFile) {
-        parts.push(`Parcel: ${parcelFile.name}`);
-    }
-    if (imageFile) {
-        parts.push(`Image: ${imageFile.name}`);
-    }
-    summary.textContent = parts.join(" | ");
+    summary.textContent = `Parcel: ${parcelFile.name}`;
 }
 
 function updateStatus(message, isError) {
@@ -531,6 +566,23 @@ function stringifyValue(value) {
         return JSON.stringify(value);
     }
     return String(value);
+}
+
+function formatAreaValue(area, areaUnit) {
+    if (areaUnit === "square feet") {
+        return `${formatNumber(Number(area) / 43560)} acre`;
+    }
+    return `${formatNumber(area)} ${areaUnit}`;
+}
+
+function formatPropertyValue(key, value, properties) {
+    if (key === "area") {
+        return formatAreaValue(value, properties.area_unit);
+    }
+    if (key === "area_unit" && properties.area_unit === "square feet") {
+        return "acre";
+    }
+    return stringifyValue(value);
 }
 
 function escapeHtml(value) {

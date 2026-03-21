@@ -201,7 +201,8 @@ input {
 }
 
 .intake-form,
-.upload-field {
+.upload-field,
+.database-controls {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -215,12 +216,34 @@ input {
     flex-wrap: wrap;
 }
 
+.database-controls {
+    flex-wrap: wrap;
+}
+
 .upload-field {
     padding: 10px 12px;
     border-radius: 14px;
     background: var(--bg-panel-soft);
     border: 1px solid var(--border);
     color: var(--text-secondary);
+}
+
+.upload-field input,
+.upload-field select {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    outline: none;
+}
+
+.compact-field {
+    min-width: 180px;
+}
+
+.grow-field {
+    min-width: 320px;
+    flex: 1 1 320px;
 }
 
 .upload-field span {

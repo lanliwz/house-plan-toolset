@@ -23,7 +23,15 @@ from onto2ai_parcel.staging.pydantic_parcel_model import (
     USStateEnum,
 )
 
+from house_landscape_planner.analysis.parcel import compute_metrics, normalize_points
+from house_landscape_planner.analysis.site_report import (
+    build_assumptions,
+    build_concept_zones,
+    build_next_data_list,
+    build_recommendations,
+)
 from house_landscape_planner.io.geojson_loader import load_geojson
+from house_landscape_planner.models import ParcelSummary, SiteAssessment
 
 
 USA_URI = "https://www.omg.org/spec/LCC/Countries/ISO3166-1-CountryCodes/UnitedStatesOfAmerica"
@@ -31,6 +39,7 @@ SUBDIVISION_URI_TEMPLATE = (
     "https://www.omg.org/spec/LCC/Countries/Regions/ISO3166-2-SubdivisionCodes-US/US-{state}"
 )
 PARCEL_NS = "http://www.onto2ai-toolset.com/ontology/parcel/Parcel/#"
+DEFAULT_WEB_DATABASE = os.getenv("NEO4J_HP62N_DB_NAME", "hp62n")
 
 
 @dataclass(frozen=True)
@@ -46,6 +55,14 @@ class ParcelBundle:
     source_properties: dict[str, Any]
     parcel: Parcel
     feature: GeoJSONFeature
+
+
+@dataclass(frozen=True)
+class Neo4jParcelListItem:
+    parcel_id: str
+    label: str
+    vertex_count: int
+    uri: str
 
 
 def load_geojson_into_neo4j(
@@ -78,6 +95,98 @@ def load_geojson_into_neo4j(
         "parcel_count": len(bundles),
         "vertex_count": sum(len(bundle.parcel.has_parcel_geometry[0].has_boundary_vertex) for bundle in bundles),
     }
+
+
+def list_parcels_from_neo4j(database: str = DEFAULT_WEB_DATABASE) -> list[Neo4jParcelListItem]:
+    config = get_neo4j_config(database=database)
+    driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+    try:
+        with driver.session(database=config.database) as session:
+            rows = session.run(
+                """
+                MATCH (parcel:Parcel:Resource)
+                OPTIONAL MATCH (parcel)-[:hasParcelGeometry]->(:PolygonGeometry:Geometry:Resource)-[:hasBoundaryVertex]->(vertex:BoundaryVertex:GPSCoordinate:Resource)
+                RETURN parcel.parcelId AS parcel_id,
+                       coalesce(parcel.fullAddressText, parcel.FULLADDRESS, parcel.rdfs__label, parcel.parcelId) AS label,
+                       parcel.uri AS uri,
+                       count(vertex) AS vertex_count
+                ORDER BY label
+                """
+            )
+            return [
+                Neo4jParcelListItem(
+                    parcel_id=row["parcel_id"],
+                    label=row["label"],
+                    vertex_count=row["vertex_count"],
+                    uri=row["uri"],
+                )
+                for row in rows
+                if row["parcel_id"]
+            ]
+    finally:
+        driver.close()
+
+
+def create_site_assessment_from_neo4j(
+    parcel_id: str,
+    *,
+    database: str = DEFAULT_WEB_DATABASE,
+) -> SiteAssessment:
+    config = get_neo4j_config(database=database)
+    driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+    try:
+        with driver.session(database=config.database) as session:
+            row = session.run(
+                """
+                MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})
+                OPTIONAL MATCH (feature:GeoJSONFeature:Resource)-[:representsParcel]->(parcel)
+                OPTIONAL MATCH (parcel)-[:hasParcelGeometry]->(geometry:PolygonGeometry:Geometry:Resource)
+                OPTIONAL MATCH (geometry)-[:hasBoundaryVertex]->(vertex:BoundaryVertex:GPSCoordinate:Resource)
+                WITH parcel, feature, geometry, collect(properties(vertex)) AS vertices
+                RETURN properties(parcel) AS parcel_props,
+                       properties(feature) AS feature_props,
+                       properties(geometry) AS geometry_props,
+                       vertices AS vertices
+                """,
+                parcel_id=parcel_id,
+            ).single()
+    finally:
+        driver.close()
+
+    if row is None:
+        raise ValueError(f"Parcel {parcel_id!r} not found in database {database!r}.")
+
+    parcel_props = dict(row["parcel_props"] or {})
+    feature_props = dict(row["feature_props"] or {})
+    vertex_props = sorted(
+        [dict(item) for item in (row["vertices"] or []) if item],
+        key=lambda item: item.get("vertexSequenceNumber", 0),
+    )
+    if not vertex_props:
+        raise ValueError(f"Parcel {parcel_id!r} has no boundary vertices in database {database!r}.")
+
+    source_points = [
+        (float(item["longitude"]), float(item["latitude"]))
+        for item in vertex_props
+    ]
+    closed_points = source_points + [source_points[0]]
+    metric_points, _, _, _ = normalize_points(closed_points)
+    parcel_summary = ParcelSummary(
+        source_path=Path(f"/neo4j/{database}/{parcel_id}.geojson"),
+        geometry_type=feature_props.get("geometryTypeName", "Polygon"),
+        properties=parcel_props,
+        source_boundary_points=closed_points,
+        boundary_points=metric_points,
+        metrics=compute_metrics(closed_points),
+    )
+    return SiteAssessment(
+        parcel=parcel_summary,
+        image=None,
+        assumptions=build_assumptions(parcel_summary, None),
+        concept_zones=build_concept_zones(parcel_summary),
+        recommendations=build_recommendations(parcel_summary, None),
+        next_data_to_collect=build_next_data_list(),
+    )
 
 
 def get_neo4j_config(*, database: str) -> Neo4jConfig:

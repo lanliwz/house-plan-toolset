@@ -10,6 +10,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from house_landscape_planner.analysis.site_report import create_site_assessment
+from house_landscape_planner.loaders.neo4j_parcel_loader import (
+    DEFAULT_WEB_DATABASE,
+    create_site_assessment_from_neo4j,
+    list_parcels_from_neo4j,
+)
 from house_landscape_planner.webapp.api import (
     SiteAssessmentResponse,
     create_assessment_from_uploads,
@@ -37,6 +42,7 @@ async def root(request: Request):
         "index.html",
         {
             "request": request,
+            "default_database": DEFAULT_WEB_DATABASE,
             "sample_parcel_name": SAMPLE_PARCEL.name,
         },
     )
@@ -51,6 +57,34 @@ async def health() -> dict[str, str]:
 async def sample_analysis() -> SiteAssessmentResponse:
     assessment = create_site_assessment(SAMPLE_PARCEL)
     return serialize_assessment(assessment, parcel_name=SAMPLE_PARCEL.name)
+
+
+@app.get("/api/neo4j/parcels")
+async def list_neo4j_parcels(database: str = DEFAULT_WEB_DATABASE) -> list[dict[str, object]]:
+    try:
+        parcels = list_parcels_from_neo4j(database=database)
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to read Neo4j parcel catalog: {exc}") from exc
+    return [
+        {
+            "parcel_id": item.parcel_id,
+            "label": item.label,
+            "vertex_count": item.vertex_count,
+            "uri": item.uri,
+        }
+        for item in parcels
+    ]
+
+
+@app.get("/api/neo4j/parcels/{parcel_id}", response_model=SiteAssessmentResponse)
+async def neo4j_parcel_analysis(parcel_id: str, database: str = DEFAULT_WEB_DATABASE) -> SiteAssessmentResponse:
+    try:
+        assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
+        return serialize_assessment(assessment, parcel_name=parcel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to read parcel from Neo4j: {exc}") from exc
 
 
 @app.post("/api/analyze", response_model=SiteAssessmentResponse)

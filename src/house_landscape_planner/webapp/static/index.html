@@ -30,7 +30,6 @@
                 </div>
             </div>
             <div class="header-actions">
-                <button id="load-sample" class="button secondary" type="button">Load sample parcel</button>
                 <button id="download-report" class="button secondary" type="button" disabled>Download report</button>
                 <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle theme">
                     <span class="theme-dark">Dark</span>
@@ -40,17 +39,28 @@
         </header>
 
         <section class="intake-bar">
+            <div class="database-controls">
+                <label class="upload-field compact-field">
+                    <span>Database</span>
+                    <input id="database-name" type="text" value="{{ default_database }}">
+                </label>
+                <label class="upload-field grow-field">
+                    <span>Neo4j parcel</span>
+                    <select id="neo4j-parcel-select">
+                        <option value="">Loading parcels...</option>
+                    </select>
+                </label>
+                <div class="intake-actions">
+                    <button id="load-neo4j" class="button secondary" type="button">Load from Neo4j</button>
+                </div>
+            </div>
             <form id="analysis-form" class="intake-form">
                 <label class="upload-field">
                     <span>Parcel GeoJSON</span>
                     <input id="parcel-file" name="parcel" type="file" accept=".json,.geojson,application/geo+json,application/json" required>
                 </label>
-                <label class="upload-field">
-                    <span>Site image</span>
-                    <input id="image-file" name="image" type="file" accept="image/*">
-                </label>
                 <div class="intake-actions">
-                    <button id="analyze-button" class="button primary" type="submit">Analyze</button>
+                    <button id="load-file" class="button primary" type="submit">Load</button>
                     <button id="reset-button" class="button ghost" type="button">Clear</button>
                 </div>
             </form>
