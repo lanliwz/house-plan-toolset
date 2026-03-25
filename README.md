@@ -13,6 +13,7 @@ It gives you a practical starting point for:
 - parcel geometry analysis
 - irregular-lot constraints review
 - hillside-specific landscape recommendations
+- ontology-backed landscape feature programming
 - a Neo4j-backed browser parcel review workflow
 - a repeatable site intake workflow for later expansion into grading, drainage, planting, access, and retaining-wall design
 
@@ -46,7 +47,7 @@ The web app lets you:
 - browse parcels from Neo4j database `hp62n` by default
 - load a selected local parcel GeoJSON file with the `Load` action
 - review parcel metrics, assumptions, recommendations, and parcel properties
-- inspect the interactive parcel detail view with parcel, edge, and vertex objects
+- inspect the interactive parcel detail view with parcel, edge, vertex, and landscape feature objects
 - preview and download the generated markdown report
 
 Loader documentation:
@@ -93,8 +94,16 @@ The generated report currently includes:
 
 - parcel area, perimeter, bounding box, and centroid
 - an irregularity score based on shape compactness
+- ontology-backed landscape features mapped to concept zones such as arrival gardens, circulation paths, terraces, bioswales, and privacy planting
 - a simple steep-site planning checklist tailored to hillside residential landscaping
 - suggested next data to collect for more accurate hillside design
+
+## Landscape Ontology
+
+The repository now includes a landscape ontology source file and matching Cypher companion artifact:
+
+- [Landscape.rdf](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.rdf)
+- [Landscape.cypher](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.cypher)
 
 ## Notes
 

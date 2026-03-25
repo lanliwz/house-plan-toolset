@@ -23,6 +23,7 @@ from onto2ai_parcel.staging.pydantic_parcel_model import (
     USStateEnum,
 )
 
+from house_landscape_planner.analysis.landscape_features import build_landscape_features
 from house_landscape_planner.analysis.parcel import compute_metrics, normalize_points
 from house_landscape_planner.analysis.site_report import (
     build_assumptions,
@@ -179,11 +180,13 @@ def create_site_assessment_from_neo4j(
         boundary_points=metric_points,
         metrics=compute_metrics(closed_points),
     )
+    concept_zones = build_concept_zones(parcel_summary)
     return SiteAssessment(
         parcel=parcel_summary,
         image=None,
         assumptions=build_assumptions(parcel_summary, None),
-        concept_zones=build_concept_zones(parcel_summary),
+        concept_zones=concept_zones,
+        landscape_features=build_landscape_features(parcel_summary, concept_zones),
         recommendations=build_recommendations(parcel_summary, None),
         next_data_to_collect=build_next_data_list(),
     )

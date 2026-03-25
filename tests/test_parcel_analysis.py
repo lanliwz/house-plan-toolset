@@ -57,7 +57,9 @@ class ParcelAnalysisTest(unittest.TestCase):
         report = render_markdown_report(assessment)
 
         self.assertIn("## Concept Zoning Plan", report)
+        self.assertIn("## Landscape Feature Program", report)
         self.assertIn("### Primary Circulation Spine", report)
+        self.assertIn("### Hillside Circulation Spine", report)
         self.assertIn("## Design Assumptions", report)
 
     def test_svg_diagram_contains_expected_layers(self) -> None:

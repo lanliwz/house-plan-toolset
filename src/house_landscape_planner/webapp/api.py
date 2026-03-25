@@ -14,7 +14,7 @@ from house_landscape_planner.analysis.site_report import (
     create_site_assessment,
     render_markdown_report,
 )
-from house_landscape_planner.models import ConceptZone, SiteAssessment
+from house_landscape_planner.models import ConceptZone, LandscapeFeature, SiteAssessment
 
 
 class ParcelMetricsResponse(BaseModel):
@@ -48,6 +48,25 @@ class ConceptZoneResponse(BaseModel):
     target_share_percent: int
 
 
+class LandscapeFeatureResponse(BaseModel):
+    feature_id: str
+    name: str
+    ontology_class: str
+    zone_name: str
+    summary: str
+    intent: str
+    placement: str
+    rationale: str
+    design_moves: list[str]
+    priority: str
+    target_share_percent: int | None
+    anchor_x_ratio: float
+    anchor_y_ratio: float
+    width_ratio: float
+    height_ratio: float
+    visual_kind: str
+
+
 class ParcelObjectResponse(BaseModel):
     id: str
     kind: str
@@ -75,10 +94,20 @@ class VertexObjectResponse(BaseModel):
     properties: dict[str, object]
 
 
+class FeatureObjectResponse(BaseModel):
+    id: str
+    kind: str = "feature"
+    label: str
+    subtitle: str
+    description: str
+    properties: dict[str, object]
+
+
 class SiteObjectsResponse(BaseModel):
     parcel: ParcelObjectResponse
     edges: list[EdgeObjectResponse]
     vertices: list[VertexObjectResponse]
+    features: list[FeatureObjectResponse]
 
 
 class SiteAssessmentResponse(BaseModel):
@@ -89,6 +118,7 @@ class SiteAssessmentResponse(BaseModel):
     image: ImageSummaryResponse | None
     assumptions: list[str]
     concept_zones: list[ConceptZoneResponse]
+    landscape_features: list[LandscapeFeatureResponse]
     recommendations: list[str]
     next_data_to_collect: list[str]
     report_markdown: str
@@ -157,6 +187,7 @@ def serialize_assessment(
         ),
         assumptions=list(assessment.assumptions),
         concept_zones=[serialize_zone(zone) for zone in assessment.concept_zones],
+        landscape_features=[serialize_landscape_feature(feature) for feature in assessment.landscape_features],
         recommendations=list(assessment.recommendations),
         next_data_to_collect=list(assessment.next_data_to_collect),
         report_markdown=render_markdown_report(assessment),
@@ -176,6 +207,27 @@ def serialize_zone(zone: ConceptZone) -> ConceptZoneResponse:
     )
 
 
+def serialize_landscape_feature(feature: LandscapeFeature) -> LandscapeFeatureResponse:
+    return LandscapeFeatureResponse(
+        feature_id=feature.feature_id,
+        name=feature.name,
+        ontology_class=feature.ontology_class,
+        zone_name=feature.zone_name,
+        summary=feature.summary,
+        intent=feature.intent,
+        placement=feature.placement,
+        rationale=feature.rationale,
+        design_moves=list(feature.design_moves),
+        priority=feature.priority,
+        target_share_percent=feature.target_share_percent,
+        anchor_x_ratio=feature.anchor_x_ratio,
+        anchor_y_ratio=feature.anchor_y_ratio,
+        width_ratio=feature.width_ratio,
+        height_ratio=feature.height_ratio,
+        visual_kind=feature.visual_kind,
+    )
+
+
 def serialize_site_objects(
     assessment: SiteAssessment,
     *,
@@ -186,6 +238,7 @@ def serialize_site_objects(
     parcel_model = build_onto2ai_parcel_model(assessment, parcel_name=parcel_name)
     edges = build_edge_objects(open_points, assessment)
     vertices = build_vertex_objects(open_points, assessment, parcel_model)
+    features = build_feature_objects(assessment)
 
     metrics = assessment.parcel.metrics
     parcel = ParcelObjectResponse(
@@ -208,10 +261,11 @@ def serialize_site_objects(
             "coordinate_system": metrics.coordinate_system,
             "edge_count": len(edges),
             "vertex_count": len(vertices),
+            "feature_count": len(features),
             **assessment.parcel.properties,
         },
     )
-    return SiteObjectsResponse(parcel=parcel, edges=edges, vertices=vertices)
+    return SiteObjectsResponse(parcel=parcel, edges=edges, vertices=vertices, features=features)
 
 
 def build_edge_objects(
@@ -272,12 +326,40 @@ def build_vertex_objects(
                     "gps_coordinate_id": boundary_vertex.gps_coordinate_id,
                     "vertex_sequence_number": boundary_vertex.vertex_sequence_number,
                     "interior_angle_degrees": round(turn_angle, 2),
+                    "linear_unit": display_linear_unit(assessment.parcel.metrics.linear_unit),
                     "latitude": round(latitude, 8),
                     "longitude": round(longitude, 8),
                 },
             )
         )
     return vertices
+
+
+def build_feature_objects(assessment: SiteAssessment) -> list[FeatureObjectResponse]:
+    return [
+        FeatureObjectResponse(
+            id=feature.feature_id,
+            label=feature.name,
+            subtitle=f"{feature.visual_kind.title()} in {feature.zone_name}",
+            description=feature.summary,
+            properties={
+                "ontology_class": feature.ontology_class,
+                "zone_name": feature.zone_name,
+                "priority": feature.priority,
+                "intent": feature.intent,
+                "placement": feature.placement,
+                "rationale": feature.rationale,
+                "design_moves": list(feature.design_moves),
+                "target_share_percent": feature.target_share_percent,
+                "anchor_x_ratio": feature.anchor_x_ratio,
+                "anchor_y_ratio": feature.anchor_y_ratio,
+                "width_ratio": feature.width_ratio,
+                "height_ratio": feature.height_ratio,
+                "visual_kind": feature.visual_kind,
+            },
+        )
+        for feature in assessment.landscape_features
+    ]
 
 
 def build_onto2ai_parcel_model(

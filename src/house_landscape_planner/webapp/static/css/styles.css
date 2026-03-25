@@ -660,6 +660,61 @@ input {
     r: 8;
 }
 
+.feature-shape {
+    cursor: pointer;
+}
+
+.feature-shape.bed {
+    fill: rgba(244, 185, 66, 0.28);
+    stroke: #d49b18;
+    stroke-width: 2.5;
+}
+
+.feature-shape.path {
+    fill: none;
+    stroke: #cf6a47;
+    stroke-width: 10;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.feature-shape.terrace {
+    fill: rgba(132, 201, 140, 0.24);
+    stroke: #4f8a57;
+    stroke-width: 2.5;
+}
+
+.feature-shape.swale {
+    fill: rgba(120, 183, 217, 0.24);
+    stroke: #3b7aa2;
+    stroke-width: 2.5;
+}
+
+.feature-shape.screen {
+    fill: none;
+    stroke: #7aa763;
+    stroke-width: 8;
+    stroke-dasharray: 8 8;
+    stroke-linecap: round;
+}
+
+.feature-shape.wall {
+    fill: rgba(213, 161, 75, 0.2);
+    stroke: #c1852a;
+    stroke-width: 2.5;
+}
+
+.feature-shape.selected {
+    filter: drop-shadow(0 0 10px rgba(213, 161, 75, 0.45));
+    stroke-width: 4;
+}
+
+.feature-label {
+    fill: var(--text-primary);
+    font-size: 13px;
+    font-weight: 700;
+}
+
 .canvas-label {
     fill: var(--text-secondary);
     font-size: 12px;

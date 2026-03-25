@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from house_landscape_planner.analysis.landscape_features import build_landscape_features
 from house_landscape_planner.analysis.parcel import analyze_parcel
 from house_landscape_planner.io.image_loader import load_image_summary
 from house_landscape_planner.models import ConceptZone, ImageSummary, ParcelSummary, SiteAssessment
@@ -139,11 +140,13 @@ def build_next_data_list() -> list[str]:
 def create_site_assessment(parcel_path: str | Path, image_path: str | Path | None = None) -> SiteAssessment:
     parcel = analyze_parcel(parcel_path)
     image = load_image_summary(image_path) if image_path else None
+    concept_zones = build_concept_zones(parcel)
     return SiteAssessment(
         parcel=parcel,
         image=image,
         assumptions=build_assumptions(parcel, image),
-        concept_zones=build_concept_zones(parcel),
+        concept_zones=concept_zones,
+        landscape_features=build_landscape_features(parcel, concept_zones),
         recommendations=build_recommendations(parcel, image),
         next_data_to_collect=build_next_data_list(),
     )
@@ -229,6 +232,29 @@ def render_markdown_report(assessment: SiteAssessment) -> str:
             ]
         )
         lines.extend([f"- Move: {item}" for item in zone.moves])
+        lines.append("")
+
+    lines.extend(
+        [
+            "",
+            "## Landscape Feature Program",
+        ]
+    )
+    for feature in assessment.landscape_features:
+        lines.extend(
+            [
+                f"### {feature.name}",
+                f"- Ontology class: `{feature.ontology_class}`",
+                f"- Concept zone: {feature.zone_name}",
+                f"- Priority: `{feature.priority}`",
+                f"- Summary: {feature.summary}",
+                f"- Placement: {feature.placement}",
+                f"- Rationale: {feature.rationale}",
+            ]
+        )
+        if feature.target_share_percent is not None:
+            lines.append(f"- Related zone share: `{feature.target_share_percent}%`")
+        lines.extend([f"- Move: {item}" for item in feature.design_moves])
         lines.append("")
 
     lines.extend(

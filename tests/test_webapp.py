@@ -39,6 +39,8 @@ def test_sample_analysis_endpoint_returns_report_payload() -> None:
     assert payload["objects"]["parcel"]["id"] == "parcel"
     assert payload["objects"]["parcel"]["properties"]["parcel_id"] == "sample-001"
     assert payload["objects"]["parcel"]["properties"]["full_address_text"] == "123 Hillside Lane"
+    assert payload["landscape_features"][0]["ontology_class"].startswith("http://www.onto2ai-toolset.com/ontology/landscape/Landscape#")
+    assert len(payload["objects"]["features"]) == len(payload["landscape_features"])
     assert len(payload["objects"]["edges"]) == payload["metrics"]["vertex_count"]
     assert len(payload["objects"]["vertices"]) == payload["metrics"]["vertex_count"]
 
@@ -98,9 +100,11 @@ def test_analyze_endpoint_accepts_uploads() -> None:
     assert payload["parcel_name"] == "parcel.geojson"
     assert payload["image"]["width_px"] == 32
     assert "Site Assessment" in payload["report_markdown"]
+    assert "Landscape Feature Program" in payload["report_markdown"]
     assert "<svg" in payload["diagram_svg"]
     assert payload["objects"]["edges"][0]["properties"]["length"] == 20.0
     assert payload["objects"]["edges"][0]["properties"]["length_unit"] == "meters"
+    assert payload["objects"]["features"][0]["kind"] == "feature"
     assert payload["objects"]["parcel"]["properties"]["full_address_text"] == "456 Terrace View"
     assert payload["objects"]["vertices"][0]["properties"]["gps_coordinate_id"] == "parcel-vertex-1"
     assert payload["objects"]["vertices"][0]["properties"]["longitude"] == 0.0

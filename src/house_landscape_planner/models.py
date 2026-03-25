@@ -49,10 +49,31 @@ class ConceptZone:
 
 
 @dataclass(slots=True)
+class LandscapeFeature:
+    feature_id: str
+    name: str
+    ontology_class: str
+    zone_name: str
+    summary: str
+    intent: str
+    placement: str
+    rationale: str
+    design_moves: list[str]
+    priority: str
+    target_share_percent: int | None
+    anchor_x_ratio: float
+    anchor_y_ratio: float
+    width_ratio: float
+    height_ratio: float
+    visual_kind: str
+
+
+@dataclass(slots=True)
 class SiteAssessment:
     parcel: ParcelSummary
     image: ImageSummary | None
     assumptions: list[str]
     concept_zones: list[ConceptZone]
+    landscape_features: list[LandscapeFeature]
     recommendations: list[str]
     next_data_to_collect: list[str]
