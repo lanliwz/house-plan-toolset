@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=2">
+    <link rel="stylesheet" href="/static/css/styles.css?v=3">
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.umd.min.js"></script>
     <script>
         (function () {
@@ -114,16 +114,6 @@
                         </div>
                     </div>
 
-                    <div class="nav-section">
-                        <button class="nav-section-header" data-section-toggle="feature-list" type="button" aria-expanded="true">
-                            <span class="section-toggle">▼</span>
-                            <span class="section-title">Landscape Features</span>
-                            <span class="section-count" id="feature-count">0</span>
-                        </button>
-                        <div id="feature-list" class="catalog-list">
-                            <div class="placeholder">Landscape features will appear here.</div>
-                        </div>
-                    </div>
                 </div>
 
                 <div class="tab-content" id="notes-tab">
@@ -164,6 +154,13 @@
 
                 <div class="detail-canvas" id="detail-canvas">
                     <div class="placeholder">Interactive parcel diagram will appear here.</div>
+                </div>
+
+                <div class="zoom-toolbar" aria-label="Diagram zoom controls">
+                    <span class="zoom-label">Zoom</span>
+                    <button class="zoom-button" id="zoom-out" type="button" aria-label="Zoom out">-</button>
+                    <button class="zoom-button" id="zoom-reset" type="button">100%</button>
+                    <button class="zoom-button" id="zoom-in" type="button" aria-label="Zoom in">+</button>
                 </div>
 
                 <div class="middle-bottom">
@@ -216,6 +213,6 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=2"></script>
+    <script src="/static/js/app.js?v=3"></script>
 </body>
 </html>

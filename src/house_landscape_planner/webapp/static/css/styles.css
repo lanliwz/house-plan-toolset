@@ -502,10 +502,60 @@ input {
     overflow: auto;
 }
 
+.diagram-stage {
+    display: inline-block;
+}
+
 .detail-canvas svg {
-    width: 100%;
+    max-width: none;
     height: auto;
     display: block;
+}
+
+.zoom-toolbar {
+    display: inline-flex;
+    align-self: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+}
+
+.zoom-label {
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.zoom-button {
+    min-width: 44px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-panel-soft);
+    color: var(--text-primary);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.zoom-button:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
+}
+
+.zoom-button:active {
+    transform: translateY(1px);
+}
+
+.zoom-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+    transform: none;
 }
 
 .middle-bottom {
@@ -638,26 +688,24 @@ input {
 
 .edge-line {
     stroke: var(--accent-alt);
-    stroke-width: 4;
+    stroke-width: 2;
     stroke-linecap: round;
     cursor: pointer;
 }
 
 .edge-line.selected {
     stroke: var(--accent);
-    stroke-width: 6;
 }
 
 .vertex-dot {
     fill: var(--text-primary);
     stroke: var(--bg-panel);
-    stroke-width: 2;
+    stroke-width: 1.5;
     cursor: pointer;
 }
 
 .vertex-dot.selected {
     fill: var(--accent);
-    r: 8;
 }
 
 .feature-shape {
