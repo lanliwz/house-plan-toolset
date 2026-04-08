@@ -66,6 +66,7 @@ class LandscapeFeature:
     width_ratio: float
     height_ratio: float
     visual_kind: str
+    rotation_degrees: float | None = None
 
 
 @dataclass(slots=True)

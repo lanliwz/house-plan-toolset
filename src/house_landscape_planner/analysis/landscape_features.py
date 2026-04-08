@@ -39,6 +39,7 @@ def build_landscape_features(
             width_ratio=0.66,
             height_ratio=0.14,
             visual_kind="bed",
+            rotation_degrees=None,
         ),
         LandscapeFeature(
             feature_id="feature-circulation-spine",
@@ -57,24 +58,26 @@ def build_landscape_features(
             width_ratio=0.14,
             height_ratio=0.52,
             visual_kind="path",
+            rotation_degrees=None,
         ),
         LandscapeFeature(
             feature_id="feature-terrace-room",
-            name="Outdoor Terrace Room",
+            name="Rectangular Gray Brick Patio",
             ontology_class=f"{LANDSCAPE_NS}OutdoorTerrace",
             zone_name=terrace_zone.name,
-            summary="Main outdoor living platform sized for daily use close to the house.",
+            summary="Rectangular gray-brick patio sized for dining and everyday outdoor living close to the house.",
             intent=terrace_zone.intent,
             placement=terrace_zone.siting,
-            rationale="A single durable gathering terrace creates a clear destination and keeps the most expensive hardscape concentrated where it is most useful.",
+            rationale="A single rectangular brick patio creates a clear gathering surface, reads cleanly against the parcel geometry, and concentrates durable hardscape where it is most useful.",
             design_moves=list(terrace_zone.moves),
             priority="high",
             target_share_percent=terrace_zone.target_share_percent,
             anchor_x_ratio=0.52,
             anchor_y_ratio=0.50,
-            width_ratio=0.34,
-            height_ratio=0.20,
-            visual_kind="terrace",
+            width_ratio=0.30,
+            height_ratio=0.18,
+            visual_kind="patio",
+            rotation_degrees=None,
         ),
         LandscapeFeature(
             feature_id="feature-bioswale-buffer",
@@ -93,6 +96,7 @@ def build_landscape_features(
             width_ratio=0.64,
             height_ratio=0.16,
             visual_kind="swale",
+            rotation_degrees=None,
         ),
         LandscapeFeature(
             feature_id="feature-privacy-belt",
@@ -111,6 +115,7 @@ def build_landscape_features(
             width_ratio=0.76,
             height_ratio=0.08,
             visual_kind="screen",
+            rotation_degrees=None,
         ),
     ]
 
@@ -137,6 +142,7 @@ def build_landscape_features(
                 width_ratio=0.20,
                 height_ratio=0.16,
                 visual_kind="wall",
+                rotation_degrees=None,
             )
         )
 

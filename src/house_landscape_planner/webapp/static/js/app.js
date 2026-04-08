@@ -7,6 +7,9 @@ const state = {
     reportMarkdown: "",
     detailZoom: 1,
     gardenInteraction: null,
+    persistenceMode: "session",
+    currentNeo4jParcelId: null,
+    currentNeo4jDatabase: null,
 };
 
 const DETAIL_ZOOM_MIN = 0.5;
@@ -140,6 +143,9 @@ function setupForm() {
         state.reportMarkdown = "";
         state.detailZoom = 1;
         state.gardenInteraction = null;
+        state.persistenceMode = "session";
+        state.currentNeo4jParcelId = null;
+        state.currentNeo4jDatabase = null;
         document.getElementById("download-report").disabled = true;
         updateStatus("Ready for parcel analysis", false);
         updateFileSummary();
@@ -150,6 +156,8 @@ function setupForm() {
 function setupActions() {
     document.getElementById("download-report").addEventListener("click", downloadReport);
     document.getElementById("load-neo4j").addEventListener("click", loadSelectedNeo4jParcel);
+    document.getElementById("save-features").addEventListener("click", saveFeatures);
+    document.getElementById("remove-feature").addEventListener("click", removeSelectedFeature);
 }
 
 function setupViewToggle() {
@@ -161,57 +169,68 @@ function setupViewToggle() {
         state.activeView = "garden";
         renderActiveView();
     });
+    document.getElementById("view-patio").addEventListener("click", () => {
+        state.activeView = "patio";
+        renderActiveView();
+    });
     renderActiveView();
 }
 
 function setupGardenEditing() {
-    const gardenCanvas = document.getElementById("garden-canvas");
-    gardenCanvas.addEventListener("pointerdown", (event) => {
-        const target = event.target.closest("[data-feature-action]");
-        if (!target || !state.assessment) {
-            return;
-        }
+    ["garden-canvas", "patio-canvas"].forEach((canvasId) => {
+        const canvas = document.getElementById(canvasId);
+        canvas.addEventListener("pointerdown", (event) => {
+            const target = event.target.closest("[data-feature-action]");
+            if (!target || !state.assessment) {
+                return;
+            }
 
-        const featureId = target.dataset.id;
-        const action = target.dataset.featureAction;
-        if (!featureId || !action) {
-            return;
-        }
+            const featureId = target.dataset.id;
+            const action = target.dataset.featureAction;
+            if (!featureId || !action) {
+                return;
+            }
 
-        const feature = getFeatureObjectById(featureId);
-        if (!feature) {
-            return;
-        }
+            const feature = getFeatureObjectById(featureId);
+            if (!feature) {
+                return;
+            }
 
-        if (state.selectedKind !== "feature" || state.selectedId !== featureId) {
-            state.selectedKind = "feature";
-            state.selectedId = featureId;
-            state.activeView = "garden";
-            renderSelection();
-        }
+            if (state.selectedKind !== "feature" || state.selectedId !== featureId) {
+                state.selectedKind = "feature";
+                state.selectedId = featureId;
+                state.activeView = canvasId === "patio-canvas" ? "patio" : "garden";
+                renderSelection();
+            }
 
-        const svg = gardenCanvas.querySelector("svg");
-        if (!svg) {
-            return;
-        }
+            const svg = canvas.querySelector("svg");
+            if (!svg) {
+                return;
+            }
 
-        event.preventDefault();
-        const context = getGardenEditContext();
-        const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
-        state.gardenInteraction = {
-            mode: action,
-            featureId,
-            pointerId: event.pointerId,
-            startPointer: pointer,
-            startProperties: {
-                anchor_x_ratio: Number(feature.properties.anchor_x_ratio || 0.5),
-                anchor_y_ratio: Number(feature.properties.anchor_y_ratio || 0.5),
-                width_ratio: Number(feature.properties.width_ratio || 0.12),
-                height_ratio: Number(feature.properties.height_ratio || 0.12),
-                rotation_degrees: Number(feature.properties.rotation_degrees ?? getParcelRotation(context.vertexPoints)),
-            },
-            context,
-        };
+            event.preventDefault();
+            const context = getGardenEditContext();
+            const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
+            state.gardenInteraction = {
+                mode: action,
+                featureId,
+                pointerId: event.pointerId,
+                sourceCanvasId: canvasId,
+                startPointer: pointer,
+                startProperties: {
+                    anchor_x_ratio: Number(feature.properties.anchor_x_ratio || 0.5),
+                    anchor_y_ratio: Number(feature.properties.anchor_y_ratio || 0.5),
+                    width_ratio: Number(feature.properties.width_ratio || 0.12),
+                    height_ratio: Number(feature.properties.height_ratio || 0.12),
+                    rotation_degrees: Number(feature.properties.rotation_degrees ?? getParcelRotation(context.vertexPoints)),
+                },
+                context,
+            };
+
+            if (typeof target.setPointerCapture === "function") {
+                target.setPointerCapture(event.pointerId);
+            }
+        });
     });
 
     window.addEventListener("pointermove", handleGardenPointerMove);
@@ -224,7 +243,7 @@ function setupZoomControls() {
     document.getElementById("zoom-out").addEventListener("click", () => adjustDetailZoom(-DETAIL_ZOOM_STEP));
     document.getElementById("zoom-reset").addEventListener("click", () => setDetailZoom(1));
 
-    ["detail-canvas", "garden-canvas"].forEach((canvasId) => {
+    ["detail-canvas", "garden-canvas", "patio-canvas"].forEach((canvasId) => {
         document.getElementById(canvasId).addEventListener("wheel", (event) => {
             if (!event.ctrlKey && !event.metaKey) {
                 return;
@@ -259,6 +278,8 @@ async function analyzeCurrentFiles() {
         if (!response.ok) {
             throw new Error(payload.detail || "Load failed.");
         }
+        state.currentNeo4jParcelId = null;
+        state.currentNeo4jDatabase = null;
         applyAssessment(payload);
         updateStatus(`Loaded ${payload.parcel_name}.`, false);
     } catch (error) {
@@ -321,6 +342,8 @@ async function loadSelectedNeo4jParcel() {
         if (!response.ok) {
             throw new Error(payload.detail || "Unable to load parcel from Neo4j.");
         }
+        state.currentNeo4jParcelId = parcelId;
+        state.currentNeo4jDatabase = database;
         applyAssessment(payload);
         updateStatus(`Loaded ${parcelId} from ${database}.`, false);
     } catch (error) {
@@ -330,6 +353,7 @@ async function loadSelectedNeo4jParcel() {
 
 function applyAssessment(payload) {
     state.assessment = payload;
+    state.persistenceMode = payload.persistence_mode || "session";
     state.selectedKind = "parcel";
     state.selectedId = "parcel";
     state.activeView = "parcel";
@@ -348,15 +372,20 @@ function applyAssessment(payload) {
 
 function renderCatalog() {
     const { parcel, edges, vertices, features } = state.assessment.objects;
+    const patioFeatures = getPatioFeatures();
     document.getElementById("parcel-count").textContent = "1";
     document.getElementById("edge-count").textContent = String(edges.length);
     document.getElementById("vertex-count").textContent = String(vertices.length);
     document.getElementById("feature-count").textContent = String(features.length);
+    document.getElementById("patio-count").textContent = String(patioFeatures.length);
 
     document.getElementById("parcel-list").innerHTML = renderCatalogItem(parcel);
     document.getElementById("edge-list").innerHTML = edges.map(renderCatalogItem).join("");
     document.getElementById("vertex-list").innerHTML = vertices.map(renderCatalogItem).join("");
     document.getElementById("feature-list").innerHTML = features.map(renderCatalogItem).join("");
+    document.getElementById("patio-list").innerHTML = patioFeatures.length
+        ? patioFeatures.map(renderCatalogItem).join("")
+        : '<div class="placeholder">No patio design features available for this parcel.</div>';
 
     document.querySelectorAll(".catalog-item").forEach((item) => {
         item.addEventListener("click", () => {
@@ -379,7 +408,11 @@ function renderCatalogItem(item) {
 function setSelection(kind, id) {
     state.selectedKind = kind;
     state.selectedId = id;
-    state.activeView = kind === "feature" ? "garden" : "parcel";
+    if (kind === "feature") {
+        state.activeView = isPatioFeature(id) ? "patio" : "garden";
+    } else {
+        state.activeView = "parcel";
+    }
     renderSelection();
 }
 
@@ -394,14 +427,19 @@ function renderSelection() {
     renderInteractiveDiagram();
     renderDetailSummary(item);
     renderProperties(item);
+    updateFeatureActions();
 }
 
 function renderActiveView() {
+    const isParcel = state.activeView === "parcel";
     const isGarden = state.activeView === "garden";
-    document.getElementById("view-parcel").classList.toggle("active", !isGarden);
+    const isPatio = state.activeView === "patio";
+    document.getElementById("view-parcel").classList.toggle("active", isParcel);
     document.getElementById("view-garden").classList.toggle("active", isGarden);
-    document.getElementById("parcel-view-panel").classList.toggle("active", !isGarden);
+    document.getElementById("view-patio").classList.toggle("active", isPatio);
+    document.getElementById("parcel-view-panel").classList.toggle("active", isParcel);
     document.getElementById("garden-view-panel").classList.toggle("active", isGarden);
+    document.getElementById("patio-view-panel").classList.toggle("active", isPatio);
     updateZoomControls();
 }
 
@@ -415,10 +453,12 @@ function syncCatalogSelection() {
 function renderInteractiveDiagram() {
     const parcelCanvas = document.getElementById("detail-canvas");
     const gardenCanvas = document.getElementById("garden-canvas");
+    const patioCanvas = document.getElementById("patio-canvas");
     parcelCanvas.innerHTML = buildParcelSvg(state.assessment);
     gardenCanvas.innerHTML = buildGardenSvg(state.assessment);
+    patioCanvas.innerHTML = buildPatioSvg(state.assessment);
 
-    [parcelCanvas, gardenCanvas].forEach((canvas) => {
+    [parcelCanvas, gardenCanvas, patioCanvas].forEach((canvas) => {
         canvas.querySelectorAll("[data-kind][data-id]").forEach((element) => {
             element.addEventListener("click", () => {
                 setSelection(element.dataset.kind, element.dataset.id);
@@ -495,6 +535,38 @@ function buildGardenSvg(data) {
         </defs>
         <polygon class="parcel-fill" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
         <g clip-path="url(#garden-clip)">
+            ${featureShapes}
+        </g>
+    `);
+}
+
+function buildPatioSvg(data) {
+    const points = data.parcel_boundary_points || [];
+    if (!points.length) {
+        return '<div class="placeholder">Patio design diagram will appear here.</div>';
+    }
+
+    const { width, height, vertexPoints, polygonPoints } = buildDiagramGeometry(points);
+    const left = Math.min(...vertexPoints.map((point) => point.x));
+    const right = Math.max(...vertexPoints.map((point) => point.x));
+    const top = Math.min(...vertexPoints.map((point) => point.y));
+    const bottom = Math.max(...vertexPoints.map((point) => point.y));
+    const boxWidth = Math.max(right - left, 1);
+    const boxHeight = Math.max(bottom - top, 1);
+    const parcelRotation = getParcelRotation(vertexPoints);
+    const patioFeatures = getPatioFeatures();
+    const featureShapes = patioFeatures.map((feature) => (
+        buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation)
+    )).join("");
+
+    return buildSvgFrame(width, height, `
+        <defs>
+            <clipPath id="patio-clip">
+                <polygon points="${polygonPoints}"></polygon>
+            </clipPath>
+        </defs>
+        <polygon class="parcel-fill" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
+        <g clip-path="url(#patio-clip)">
             ${featureShapes}
         </g>
     `);
@@ -643,8 +715,12 @@ function handleGardenPointerMove(event) {
         return;
     }
 
-    const gardenCanvas = document.getElementById("garden-canvas");
-    const svg = gardenCanvas.querySelector("svg");
+    if (event.pointerId !== state.gardenInteraction.pointerId) {
+        return;
+    }
+
+    const sourceCanvas = document.getElementById(state.gardenInteraction.sourceCanvasId || "garden-canvas");
+    const svg = sourceCanvas?.querySelector("svg");
     if (!svg) {
         return;
     }
@@ -695,7 +771,10 @@ function handleGardenPointerMove(event) {
     renderSelection();
 }
 
-function stopGardenInteraction() {
+function stopGardenInteraction(event) {
+    if (event && state.gardenInteraction && event.pointerId !== state.gardenInteraction.pointerId) {
+        return;
+    }
     state.gardenInteraction = null;
 }
 
@@ -781,11 +860,42 @@ function titleCase(value) {
         .join(" ");
 }
 
+function getPatioFeatures() {
+    return state.assessment?.objects.features.filter((feature) => {
+        const visualKind = String(feature.properties.visual_kind || "");
+        return visualKind === "patio" || visualKind === "wall" || visualKind === "path";
+    }) || [];
+}
+
+function isPatioFeature(featureId) {
+    return getPatioFeatures().some((feature) => feature.id === featureId);
+}
+
+function getLandscapeFeaturesForIds(featureIds) {
+    const featureIdSet = new Set(featureIds);
+    return state.assessment?.landscape_features.filter((feature) => featureIdSet.has(feature.feature_id)) || [];
+}
+
+function getFeaturesForActiveView() {
+    if (!state.assessment) {
+        return [];
+    }
+    if (state.activeView === "patio") {
+        return getLandscapeFeaturesForIds(getPatioFeatures().map((feature) => feature.id));
+    }
+    if (state.activeView === "garden") {
+        const patioIdSet = new Set(getPatioFeatures().map((feature) => feature.id));
+        return state.assessment.landscape_features.filter((feature) => !patioIdSet.has(feature.feature_id));
+    }
+    return state.assessment.landscape_features;
+}
+
 function renderDetailSummary(item) {
     document.getElementById("detail-title").textContent = item.label;
     document.getElementById("detail-subtitle").textContent = item.subtitle;
     document.getElementById("detail-tags").innerHTML = buildDetailTags(item);
     document.getElementById("selection-summary").innerHTML = buildSelectionSummary(item);
+    updateFeatureActions();
 }
 
 function buildDetailTags(item) {
@@ -922,6 +1032,17 @@ function getSelectedObject() {
     return null;
 }
 
+function updateFeatureActions() {
+    const saveButton = document.getElementById("save-features");
+    const removeButton = document.getElementById("remove-feature");
+    const hasAssessment = Boolean(state.assessment);
+    const isFeatureSelected = hasAssessment && state.selectedKind === "feature" && Boolean(getSelectedObject());
+
+    const isNeo4jBacked = state.persistenceMode === "neo4j" && Boolean(state.currentNeo4jParcelId);
+    saveButton.disabled = !hasAssessment || !state.assessment.objects.features.length || !isNeo4jBacked;
+    removeButton.disabled = !isFeatureSelected || !isNeo4jBacked;
+}
+
 function metricCard(label, value) {
     return `
         <article class="metric-card">
@@ -953,10 +1074,12 @@ function resetResults() {
     document.getElementById("edge-count").textContent = "0";
     document.getElementById("vertex-count").textContent = "0";
     document.getElementById("feature-count").textContent = "0";
+    document.getElementById("patio-count").textContent = "0";
     document.getElementById("parcel-list").innerHTML = '<div class="placeholder">Load a parcel to populate the catalog.</div>';
     document.getElementById("edge-list").innerHTML = '<div class="placeholder">Boundary edges will appear here.</div>';
     document.getElementById("vertex-list").innerHTML = '<div class="placeholder">Corner vertices will appear here.</div>';
     document.getElementById("feature-list").innerHTML = '<div class="placeholder">Garden design features will appear here.</div>';
+    document.getElementById("patio-list").innerHTML = '<div class="placeholder">Patio design features will appear here.</div>';
     document.getElementById("assumptions-list").innerHTML = '<li class="placeholder-line">No assumptions loaded yet.</li>';
     document.getElementById("recommendations-list").innerHTML = '<li class="placeholder-line">No recommendations loaded yet.</li>';
     document.getElementById("detail-title").textContent = "Parcel detail view";
@@ -964,6 +1087,7 @@ function resetResults() {
     document.getElementById("detail-tags").innerHTML = '<span class="detail-chip">No object selected</span>';
     document.getElementById("detail-canvas").innerHTML = '<div class="placeholder">Interactive parcel diagram will appear here.</div>';
     document.getElementById("garden-canvas").innerHTML = '<div class="placeholder">Garden design diagram will appear here.</div>';
+    document.getElementById("patio-canvas").innerHTML = '<div class="placeholder">Patio design diagram will appear here.</div>';
     document.getElementById("selection-summary").innerHTML = '<p class="placeholder-line">Selection-specific notes will appear here.</p>';
     document.getElementById("zones-summary").innerHTML = '<p class="placeholder-line">Concept zones and next data steps will appear here.</p>';
     document.getElementById("report-preview").innerHTML = '<p class="placeholder-line">The generated markdown report will render here.</p>';
@@ -971,6 +1095,7 @@ function resetResults() {
     document.getElementById("properties-list").innerHTML = '<div class="placeholder-line">Select an object to inspect its values.</div>';
     document.getElementById("metrics-grid").innerHTML = '<div class="placeholder">Parcel metrics will appear here after analysis.</div>';
     renderActiveView();
+    updateFeatureActions();
     updateZoomControls();
 }
 
@@ -1022,6 +1147,55 @@ function downloadReport() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+}
+
+async function saveFeatures() {
+    if (!state.assessment || state.persistenceMode !== "neo4j" || !state.currentNeo4jParcelId) {
+        updateStatus("Feature saving is only available for parcels loaded from Neo4j.", true);
+        return;
+    }
+
+    try {
+        const response = await fetch(
+            `/api/neo4j/parcels/${encodeURIComponent(state.currentNeo4jParcelId)}/features?database=${encodeURIComponent(state.currentNeo4jDatabase || "hp62n")}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(state.assessment.landscape_features),
+            },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.detail || "Unable to save features to Neo4j.");
+        }
+        applyAssessment(payload);
+        updateStatus(`Saved ${payload.landscape_features.length} features to Neo4j.`, false);
+    } catch (error) {
+        updateStatus(error.message, true);
+    }
+}
+
+async function removeSelectedFeature() {
+    if (!state.assessment || state.selectedKind !== "feature" || state.persistenceMode !== "neo4j" || !state.currentNeo4jParcelId) {
+        updateStatus("Feature removal is only available for parcels loaded from Neo4j.", true);
+        return;
+    }
+
+    try {
+        const featureId = state.selectedId;
+        const response = await fetch(
+            `/api/neo4j/parcels/${encodeURIComponent(state.currentNeo4jParcelId)}/features/${encodeURIComponent(featureId)}?database=${encodeURIComponent(state.currentNeo4jDatabase || "hp62n")}`,
+            { method: "DELETE" },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.detail || "Unable to remove feature from Neo4j.");
+        }
+        applyAssessment(payload);
+        updateStatus(`Removed feature ${featureId} from Neo4j.`, false);
+    } catch (error) {
+        updateStatus(error.message, true);
+    }
 }
 
 function formatNumber(value) {

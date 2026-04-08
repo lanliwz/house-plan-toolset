@@ -65,6 +65,27 @@ class LandscapeFeatureResponse(BaseModel):
     width_ratio: float
     height_ratio: float
     visual_kind: str
+    rotation_degrees: float | None = None
+
+
+class LandscapeFeatureUpdateRequest(BaseModel):
+    feature_id: str
+    name: str
+    ontology_class: str
+    zone_name: str
+    summary: str
+    intent: str
+    placement: str
+    rationale: str
+    design_moves: list[str]
+    priority: str
+    target_share_percent: int | None
+    anchor_x_ratio: float
+    anchor_y_ratio: float
+    width_ratio: float
+    height_ratio: float
+    visual_kind: str
+    rotation_degrees: float | None = None
 
 
 class ParcelObjectResponse(BaseModel):
@@ -125,6 +146,7 @@ class SiteAssessmentResponse(BaseModel):
     diagram_svg: str
     parcel_boundary_points: list[tuple[float, float]] = Field(default_factory=list)
     objects: SiteObjectsResponse
+    persistence_mode: str = "session"
 
 
 async def create_assessment_from_uploads(
@@ -194,6 +216,7 @@ def serialize_assessment(
         diagram_svg=render_site_diagram_svg(assessment),
         parcel_boundary_points=list(assessment.parcel.boundary_points),
         objects=serialize_site_objects(assessment, parcel_name=parcel_name),
+        persistence_mode="neo4j" if str(assessment.parcel.source_path).startswith("/neo4j/") else "session",
     )
 
 
@@ -225,6 +248,7 @@ def serialize_landscape_feature(feature: LandscapeFeature) -> LandscapeFeatureRe
         width_ratio=feature.width_ratio,
         height_ratio=feature.height_ratio,
         visual_kind=feature.visual_kind,
+        rotation_degrees=feature.rotation_degrees,
     )
 
 
@@ -356,9 +380,35 @@ def build_feature_objects(assessment: SiteAssessment) -> list[FeatureObjectRespo
                 "width_ratio": feature.width_ratio,
                 "height_ratio": feature.height_ratio,
                 "visual_kind": feature.visual_kind,
+                "rotation_degrees": feature.rotation_degrees,
             },
         )
         for feature in assessment.landscape_features
+    ]
+
+
+def deserialize_landscape_features(items: list[LandscapeFeatureUpdateRequest]) -> list[LandscapeFeature]:
+    return [
+        LandscapeFeature(
+            feature_id=item.feature_id,
+            name=item.name,
+            ontology_class=item.ontology_class,
+            zone_name=item.zone_name,
+            summary=item.summary,
+            intent=item.intent,
+            placement=item.placement,
+            rationale=item.rationale,
+            design_moves=list(item.design_moves),
+            priority=item.priority,
+            target_share_percent=item.target_share_percent,
+            anchor_x_ratio=item.anchor_x_ratio,
+            anchor_y_ratio=item.anchor_y_ratio,
+            width_ratio=item.width_ratio,
+            height_ratio=item.height_ratio,
+            visual_kind=item.visual_kind,
+            rotation_degrees=item.rotation_degrees,
+        )
+        for item in items
     ]
 
 

@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,10 +14,14 @@ from house_landscape_planner.loaders.neo4j_parcel_loader import (
     DEFAULT_WEB_DATABASE,
     create_site_assessment_from_neo4j,
     list_parcels_from_neo4j,
+    remove_feature_from_neo4j,
+    save_feature_layout_to_neo4j,
 )
 from house_landscape_planner.webapp.api import (
+    LandscapeFeatureUpdateRequest,
     SiteAssessmentResponse,
     create_assessment_from_uploads,
+    deserialize_landscape_features,
     serialize_assessment,
 )
 
@@ -85,6 +89,38 @@ async def neo4j_parcel_analysis(parcel_id: str, database: str = DEFAULT_WEB_DATA
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"Failed to read parcel from Neo4j: {exc}") from exc
+
+
+@app.post("/api/neo4j/parcels/{parcel_id}/features", response_model=SiteAssessmentResponse)
+async def save_neo4j_parcel_features(
+    parcel_id: str,
+    features: list[LandscapeFeatureUpdateRequest] = Body(...),
+    database: str = DEFAULT_WEB_DATABASE,
+) -> SiteAssessmentResponse:
+    try:
+        save_feature_layout_to_neo4j(parcel_id, database=database, features=deserialize_landscape_features(features))
+        assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
+        return serialize_assessment(assessment, parcel_name=parcel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to save parcel features to Neo4j: {exc}") from exc
+
+
+@app.delete("/api/neo4j/parcels/{parcel_id}/features/{feature_id}", response_model=SiteAssessmentResponse)
+async def remove_neo4j_parcel_feature(
+    parcel_id: str,
+    feature_id: str,
+    database: str = DEFAULT_WEB_DATABASE,
+) -> SiteAssessmentResponse:
+    try:
+        remove_feature_from_neo4j(parcel_id, feature_id, database=database)
+        assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
+        return serialize_assessment(assessment, parcel_name=parcel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to remove parcel feature from Neo4j: {exc}") from exc
 
 
 @app.post("/api/analyze", response_model=SiteAssessmentResponse)

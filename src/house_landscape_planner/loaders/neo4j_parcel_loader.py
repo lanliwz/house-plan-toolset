@@ -32,7 +32,7 @@ from house_landscape_planner.analysis.site_report import (
     build_recommendations,
 )
 from house_landscape_planner.io.geojson_loader import load_geojson
-from house_landscape_planner.models import ParcelSummary, SiteAssessment
+from house_landscape_planner.models import LandscapeFeature, ParcelSummary, SiteAssessment
 
 
 USA_URI = "https://www.omg.org/spec/LCC/Countries/ISO3166-1-CountryCodes/UnitedStatesOfAmerica"
@@ -41,6 +41,7 @@ SUBDIVISION_URI_TEMPLATE = (
 )
 PARCEL_NS = "http://www.onto2ai-toolset.com/ontology/parcel/Parcel/#"
 DEFAULT_WEB_DATABASE = os.getenv("NEO4J_HP62N_DB_NAME", "hp62n")
+FEATURE_LAYOUT_PROPERTY = "housePlanFeatureLayoutJson"
 
 
 @dataclass(frozen=True)
@@ -181,15 +182,54 @@ def create_site_assessment_from_neo4j(
         metrics=compute_metrics(closed_points),
     )
     concept_zones = build_concept_zones(parcel_summary)
+    generated_features = build_landscape_features(parcel_summary, concept_zones)
     return SiteAssessment(
         parcel=parcel_summary,
         image=None,
         assumptions=build_assumptions(parcel_summary, None),
         concept_zones=concept_zones,
-        landscape_features=build_landscape_features(parcel_summary, concept_zones),
+        landscape_features=load_saved_feature_layout(parcel_props.get(FEATURE_LAYOUT_PROPERTY), generated_features),
         recommendations=build_recommendations(parcel_summary, None),
         next_data_to_collect=build_next_data_list(),
     )
+
+
+def save_feature_layout_to_neo4j(
+    parcel_id: str,
+    *,
+    database: str = DEFAULT_WEB_DATABASE,
+    features: list[LandscapeFeature],
+) -> None:
+    config = get_neo4j_config(database=database)
+    driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+    payload = json.dumps([serialize_landscape_feature(feature) for feature in features])
+    try:
+        with driver.session(database=config.database) as session:
+            result = session.run(
+                f"""
+                MATCH (parcel:Parcel:Resource {{parcelId: $parcel_id}})
+                SET parcel.{FEATURE_LAYOUT_PROPERTY} = $payload
+                RETURN parcel.parcelId AS parcel_id
+                """,
+                parcel_id=parcel_id,
+                payload=payload,
+            ).single()
+    finally:
+        driver.close()
+
+    if result is None:
+        raise ValueError(f"Parcel {parcel_id!r} not found in database {database!r}.")
+
+
+def remove_feature_from_neo4j(
+    parcel_id: str,
+    feature_id: str,
+    *,
+    database: str = DEFAULT_WEB_DATABASE,
+) -> None:
+    assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
+    updated_features = [feature for feature in assessment.landscape_features if feature.feature_id != feature_id]
+    save_feature_layout_to_neo4j(parcel_id, database=database, features=updated_features)
 
 
 def get_neo4j_config(*, database: str) -> Neo4jConfig:
@@ -199,6 +239,72 @@ def get_neo4j_config(*, database: str) -> Neo4jConfig:
     if not password:
         raise RuntimeError("NEO4J_MODEL_DB_PASSWORD is required")
     return Neo4jConfig(uri=uri, username=username, password=password, database=database)
+
+
+def serialize_landscape_feature(feature: LandscapeFeature) -> dict[str, Any]:
+    return {
+        "feature_id": feature.feature_id,
+        "name": feature.name,
+        "ontology_class": feature.ontology_class,
+        "zone_name": feature.zone_name,
+        "summary": feature.summary,
+        "intent": feature.intent,
+        "placement": feature.placement,
+        "rationale": feature.rationale,
+        "design_moves": list(feature.design_moves),
+        "priority": feature.priority,
+        "target_share_percent": feature.target_share_percent,
+        "anchor_x_ratio": feature.anchor_x_ratio,
+        "anchor_y_ratio": feature.anchor_y_ratio,
+        "width_ratio": feature.width_ratio,
+        "height_ratio": feature.height_ratio,
+        "visual_kind": feature.visual_kind,
+        "rotation_degrees": feature.rotation_degrees,
+    }
+
+
+def load_saved_feature_layout(raw_value: Any, fallback: list[LandscapeFeature]) -> list[LandscapeFeature]:
+    if not raw_value:
+        return fallback
+
+    try:
+        payload = json.loads(str(raw_value))
+    except json.JSONDecodeError:
+        return fallback
+
+    if not isinstance(payload, list):
+        return fallback
+
+    hydrated: list[LandscapeFeature] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        try:
+            hydrated.append(
+                LandscapeFeature(
+                    feature_id=str(item["feature_id"]),
+                    name=str(item["name"]),
+                    ontology_class=str(item["ontology_class"]),
+                    zone_name=str(item["zone_name"]),
+                    summary=str(item["summary"]),
+                    intent=str(item["intent"]),
+                    placement=str(item["placement"]),
+                    rationale=str(item["rationale"]),
+                    design_moves=[str(move) for move in item.get("design_moves", [])],
+                    priority=str(item["priority"]),
+                    target_share_percent=int(item["target_share_percent"]) if item.get("target_share_percent") is not None else None,
+                    anchor_x_ratio=float(item["anchor_x_ratio"]),
+                    anchor_y_ratio=float(item["anchor_y_ratio"]),
+                    width_ratio=float(item["width_ratio"]),
+                    height_ratio=float(item["height_ratio"]),
+                    visual_kind=str(item["visual_kind"]),
+                    rotation_degrees=float(item["rotation_degrees"]) if item.get("rotation_degrees") is not None else None,
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            return fallback
+
+    return hydrated or fallback
 
 
 def ensure_database_exists(driver, database: str) -> None:

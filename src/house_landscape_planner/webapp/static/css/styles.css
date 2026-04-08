@@ -479,6 +479,17 @@ input {
     justify-content: flex-end;
 }
 
+.feature-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.compact-button {
+    padding: 8px 12px;
+}
+
 .detail-chip {
     padding: 7px 10px;
     border-radius: 999px;
@@ -590,6 +601,11 @@ input {
     opacity: 0.5;
     cursor: default;
     transform: none;
+}
+
+.button:disabled {
+    opacity: 0.5;
+    cursor: default;
 }
 
 .middle-bottom {
@@ -763,6 +779,12 @@ input {
 .feature-shape.terrace {
     fill: rgba(132, 201, 140, 0.24);
     stroke: #4f8a57;
+    stroke-width: 2.5;
+}
+
+.feature-shape.patio {
+    fill: rgba(148, 152, 158, 0.42);
+    stroke: #6e737a;
     stroke-width: 2.5;
 }
 

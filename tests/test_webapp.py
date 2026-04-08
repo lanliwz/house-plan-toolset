@@ -69,6 +69,73 @@ def test_neo4j_parcel_endpoint_returns_site_assessment(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["parcel_name"] == "p-1"
+    assert response.json()["persistence_mode"] == "neo4j"
+
+
+def test_save_neo4j_features_endpoint_returns_updated_assessment(monkeypatch) -> None:
+    saved: dict[str, object] = {}
+
+    def fake_save(parcel_id, *, database="hp62n", features):
+        saved["parcel_id"] = parcel_id
+        saved["database"] = database
+        saved["feature_count"] = len(features)
+
+    monkeypatch.setattr("house_landscape_planner.webapp.main.save_feature_layout_to_neo4j", fake_save)
+    monkeypatch.setattr(
+        "house_landscape_planner.webapp.main.create_site_assessment_from_neo4j",
+        lambda parcel_id, database="hp62n": create_site_assessment("tests/data/sample_parcel.geojson"),
+    )
+
+    response = client.post(
+        "/api/neo4j/parcels/p-1/features",
+        params={"database": "hp62n"},
+        json=[
+            {
+                "feature_id": "feature-terrace-room",
+                "name": "Rectangular Gray Brick Patio",
+                "ontology_class": "http://www.onto2ai-toolset.com/ontology/landscape/Landscape#OutdoorTerrace",
+                "zone_name": "Private Outdoor Living Terrace",
+                "summary": "Rectangular gray-brick patio sized for dining and everyday outdoor living close to the house.",
+                "intent": "Create one primary usable outdoor room sized for seating, dining, and everyday gathering close to the house.",
+                "placement": "Locate this zone immediately off the house on the broadest and most level-looking portion of the parcel.",
+                "rationale": "A single rectangular brick patio creates a clear gathering surface.",
+                "design_moves": ["Use one durable surface."],
+                "priority": "high",
+                "target_share_percent": 28,
+                "anchor_x_ratio": 0.52,
+                "anchor_y_ratio": 0.5,
+                "width_ratio": 0.3,
+                "height_ratio": 0.18,
+                "visual_kind": "patio",
+                "rotation_degrees": 12.5,
+            }
+        ],
+    )
+
+    assert response.status_code == 200
+    assert saved == {"parcel_id": "p-1", "database": "hp62n", "feature_count": 1}
+    assert response.json()["parcel_name"] == "p-1"
+
+
+def test_remove_neo4j_feature_endpoint_returns_updated_assessment(monkeypatch) -> None:
+    removed: dict[str, object] = {}
+
+    def fake_remove(parcel_id, feature_id, *, database="hp62n"):
+        removed["parcel_id"] = parcel_id
+        removed["feature_id"] = feature_id
+        removed["database"] = database
+
+    monkeypatch.setattr("house_landscape_planner.webapp.main.remove_feature_from_neo4j", fake_remove)
+    monkeypatch.setattr(
+        "house_landscape_planner.webapp.main.create_site_assessment_from_neo4j",
+        lambda parcel_id, database="hp62n": create_site_assessment("tests/data/sample_parcel.geojson"),
+    )
+
+    response = client.delete("/api/neo4j/parcels/p-1/features/feature-terrace-room", params={"database": "hp62n"})
+
+    assert response.status_code == 200
+    assert removed == {"parcel_id": "p-1", "feature_id": "feature-terrace-room", "database": "hp62n"}
+    assert response.json()["parcel_name"] == "p-1"
 
 
 def test_analyze_endpoint_accepts_uploads() -> None:
