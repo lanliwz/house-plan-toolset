@@ -3,8 +3,10 @@ const state = {
     neo4jParcels: [],
     selectedKind: "parcel",
     selectedId: "parcel",
+    activeView: "parcel",
     reportMarkdown: "",
     detailZoom: 1,
+    gardenInteraction: null,
 };
 
 const DETAIL_ZOOM_MIN = 0.5;
@@ -18,7 +20,9 @@ document.addEventListener("DOMContentLoaded", () => {
     setupSplitters();
     setupForm();
     setupActions();
+    setupViewToggle();
     setupZoomControls();
+    setupGardenEditing();
     loadNeo4jParcelOptions();
 });
 
@@ -132,8 +136,10 @@ function setupForm() {
         state.assessment = null;
         state.selectedKind = "parcel";
         state.selectedId = "parcel";
+        state.activeView = "parcel";
         state.reportMarkdown = "";
         state.detailZoom = 1;
+        state.gardenInteraction = null;
         document.getElementById("download-report").disabled = true;
         updateStatus("Ready for parcel analysis", false);
         updateFileSummary();
@@ -146,18 +152,87 @@ function setupActions() {
     document.getElementById("load-neo4j").addEventListener("click", loadSelectedNeo4jParcel);
 }
 
+function setupViewToggle() {
+    document.getElementById("view-parcel").addEventListener("click", () => {
+        state.activeView = "parcel";
+        renderActiveView();
+    });
+    document.getElementById("view-garden").addEventListener("click", () => {
+        state.activeView = "garden";
+        renderActiveView();
+    });
+    renderActiveView();
+}
+
+function setupGardenEditing() {
+    const gardenCanvas = document.getElementById("garden-canvas");
+    gardenCanvas.addEventListener("pointerdown", (event) => {
+        const target = event.target.closest("[data-feature-action]");
+        if (!target || !state.assessment) {
+            return;
+        }
+
+        const featureId = target.dataset.id;
+        const action = target.dataset.featureAction;
+        if (!featureId || !action) {
+            return;
+        }
+
+        const feature = getFeatureObjectById(featureId);
+        if (!feature) {
+            return;
+        }
+
+        if (state.selectedKind !== "feature" || state.selectedId !== featureId) {
+            state.selectedKind = "feature";
+            state.selectedId = featureId;
+            state.activeView = "garden";
+            renderSelection();
+        }
+
+        const svg = gardenCanvas.querySelector("svg");
+        if (!svg) {
+            return;
+        }
+
+        event.preventDefault();
+        const context = getGardenEditContext();
+        const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
+        state.gardenInteraction = {
+            mode: action,
+            featureId,
+            pointerId: event.pointerId,
+            startPointer: pointer,
+            startProperties: {
+                anchor_x_ratio: Number(feature.properties.anchor_x_ratio || 0.5),
+                anchor_y_ratio: Number(feature.properties.anchor_y_ratio || 0.5),
+                width_ratio: Number(feature.properties.width_ratio || 0.12),
+                height_ratio: Number(feature.properties.height_ratio || 0.12),
+                rotation_degrees: Number(feature.properties.rotation_degrees ?? getParcelRotation(context.vertexPoints)),
+            },
+            context,
+        };
+    });
+
+    window.addEventListener("pointermove", handleGardenPointerMove);
+    window.addEventListener("pointerup", stopGardenInteraction);
+    window.addEventListener("pointercancel", stopGardenInteraction);
+}
+
 function setupZoomControls() {
     document.getElementById("zoom-in").addEventListener("click", () => adjustDetailZoom(DETAIL_ZOOM_STEP));
     document.getElementById("zoom-out").addEventListener("click", () => adjustDetailZoom(-DETAIL_ZOOM_STEP));
     document.getElementById("zoom-reset").addEventListener("click", () => setDetailZoom(1));
 
-    document.getElementById("detail-canvas").addEventListener("wheel", (event) => {
-        if (!event.ctrlKey && !event.metaKey) {
-            return;
-        }
-        event.preventDefault();
-        adjustDetailZoom(event.deltaY < 0 ? DETAIL_ZOOM_STEP : -DETAIL_ZOOM_STEP);
-    }, { passive: false });
+    ["detail-canvas", "garden-canvas"].forEach((canvasId) => {
+        document.getElementById(canvasId).addEventListener("wheel", (event) => {
+            if (!event.ctrlKey && !event.metaKey) {
+                return;
+            }
+            event.preventDefault();
+            adjustDetailZoom(event.deltaY < 0 ? DETAIL_ZOOM_STEP : -DETAIL_ZOOM_STEP);
+        }, { passive: false });
+    });
 
     updateZoomControls();
 }
@@ -257,6 +332,7 @@ function applyAssessment(payload) {
     state.assessment = payload;
     state.selectedKind = "parcel";
     state.selectedId = "parcel";
+    state.activeView = "parcel";
     state.reportMarkdown = payload.report_markdown;
     state.detailZoom = 1;
     document.getElementById("download-report").disabled = false;
@@ -271,14 +347,16 @@ function applyAssessment(payload) {
 }
 
 function renderCatalog() {
-    const { parcel, edges, vertices } = state.assessment.objects;
+    const { parcel, edges, vertices, features } = state.assessment.objects;
     document.getElementById("parcel-count").textContent = "1";
     document.getElementById("edge-count").textContent = String(edges.length);
     document.getElementById("vertex-count").textContent = String(vertices.length);
+    document.getElementById("feature-count").textContent = String(features.length);
 
     document.getElementById("parcel-list").innerHTML = renderCatalogItem(parcel);
     document.getElementById("edge-list").innerHTML = edges.map(renderCatalogItem).join("");
     document.getElementById("vertex-list").innerHTML = vertices.map(renderCatalogItem).join("");
+    document.getElementById("feature-list").innerHTML = features.map(renderCatalogItem).join("");
 
     document.querySelectorAll(".catalog-item").forEach((item) => {
         item.addEventListener("click", () => {
@@ -301,6 +379,7 @@ function renderCatalogItem(item) {
 function setSelection(kind, id) {
     state.selectedKind = kind;
     state.selectedId = id;
+    state.activeView = kind === "feature" ? "garden" : "parcel";
     renderSelection();
 }
 
@@ -311,9 +390,19 @@ function renderSelection() {
     }
 
     syncCatalogSelection();
+    renderActiveView();
     renderInteractiveDiagram();
     renderDetailSummary(item);
     renderProperties(item);
+}
+
+function renderActiveView() {
+    const isGarden = state.activeView === "garden";
+    document.getElementById("view-parcel").classList.toggle("active", !isGarden);
+    document.getElementById("view-garden").classList.toggle("active", isGarden);
+    document.getElementById("parcel-view-panel").classList.toggle("active", !isGarden);
+    document.getElementById("garden-view-panel").classList.toggle("active", isGarden);
+    updateZoomControls();
 }
 
 function syncCatalogSelection() {
@@ -324,45 +413,29 @@ function syncCatalogSelection() {
 }
 
 function renderInteractiveDiagram() {
-    const canvas = document.getElementById("detail-canvas");
-    const svg = buildInteractiveSvg(state.assessment);
-    canvas.innerHTML = svg;
+    const parcelCanvas = document.getElementById("detail-canvas");
+    const gardenCanvas = document.getElementById("garden-canvas");
+    parcelCanvas.innerHTML = buildParcelSvg(state.assessment);
+    gardenCanvas.innerHTML = buildGardenSvg(state.assessment);
 
-    canvas.querySelectorAll("[data-kind][data-id]").forEach((element) => {
-        element.addEventListener("click", () => {
-            setSelection(element.dataset.kind, element.dataset.id);
+    [parcelCanvas, gardenCanvas].forEach((canvas) => {
+        canvas.querySelectorAll("[data-kind][data-id]").forEach((element) => {
+            element.addEventListener("click", () => {
+                setSelection(element.dataset.kind, element.dataset.id);
+            });
         });
     });
 
     updateZoomControls();
 }
 
-function buildInteractiveSvg(data) {
+function buildParcelSvg(data) {
     const points = data.parcel_boundary_points || [];
     if (!points.length) {
         return '<div class="placeholder">Interactive parcel diagram will appear here.</div>';
     }
 
-    const width = 920;
-    const height = 460;
-    const margin = 48;
-    const xs = points.map((point) => point[0]);
-    const ys = points.map((point) => point[1]);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const spanX = Math.max(maxX - minX, 1);
-    const spanY = Math.max(maxY - minY, 1);
-    const scale = Math.min((width - margin * 2) / spanX, (height - margin * 2) / spanY);
-
-    const project = (point) => ({
-        x: margin + (point[0] - minX) * scale,
-        y: height - margin - (point[1] - minY) * scale,
-    });
-
-    const vertexPoints = points.slice(0, -1).map(project);
-    const polygonPoints = vertexPoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+    const { width, height, vertexPoints, polygonPoints } = buildDiagramGeometry(points);
     const selectedParcel = state.selectedKind === "parcel" ? "selected" : "";
 
     const edgeLines = data.objects.edges.map((edge, index) => {
@@ -389,6 +462,69 @@ function buildInteractiveSvg(data) {
         `;
     }).join("");
 
+    return buildSvgFrame(width, height, `
+        <polygon class="parcel-fill ${selectedParcel}" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
+        ${edgeLines}
+        ${vertexDots}
+    `);
+}
+
+function buildGardenSvg(data) {
+    const points = data.parcel_boundary_points || [];
+    if (!points.length) {
+        return '<div class="placeholder">Garden design diagram will appear here.</div>';
+    }
+
+    const { width, height, vertexPoints, polygonPoints } = buildDiagramGeometry(points);
+    const left = Math.min(...vertexPoints.map((point) => point.x));
+    const right = Math.max(...vertexPoints.map((point) => point.x));
+    const top = Math.min(...vertexPoints.map((point) => point.y));
+    const bottom = Math.max(...vertexPoints.map((point) => point.y));
+    const boxWidth = Math.max(right - left, 1);
+    const boxHeight = Math.max(bottom - top, 1);
+    const parcelRotation = getParcelRotation(vertexPoints);
+    const featureShapes = data.objects.features.map((feature) => (
+        buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation)
+    )).join("");
+
+    return buildSvgFrame(width, height, `
+        <defs>
+            <clipPath id="garden-clip">
+                <polygon points="${polygonPoints}"></polygon>
+            </clipPath>
+        </defs>
+        <polygon class="parcel-fill" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
+        <g clip-path="url(#garden-clip)">
+            ${featureShapes}
+        </g>
+    `);
+}
+
+function buildDiagramGeometry(points) {
+    const width = 920;
+    const height = 460;
+    const margin = 48;
+    const xs = points.map((point) => point[0]);
+    const ys = points.map((point) => point[1]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const spanX = Math.max(maxX - minX, 1);
+    const spanY = Math.max(maxY - minY, 1);
+    const scale = Math.min((width - margin * 2) / spanX, (height - margin * 2) / spanY);
+
+    const project = (point) => ({
+        x: margin + (point[0] - minX) * scale,
+        y: height - margin - (point[1] - minY) * scale,
+    });
+
+    const vertexPoints = points.slice(0, -1).map(project);
+    const polygonPoints = vertexPoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+    return { width, height, vertexPoints, polygonPoints };
+}
+
+function buildSvgFrame(width, height, content) {
     const zoomedWidth = (width * state.detailZoom).toFixed(1);
     const zoomedHeight = (height * state.detailZoom).toFixed(1);
 
@@ -396,12 +532,253 @@ function buildInteractiveSvg(data) {
         <div class="diagram-stage" style="width:${zoomedWidth}px">
             <svg viewBox="0 0 ${width} ${height}" width="${zoomedWidth}" height="${zoomedHeight}" role="img" aria-label="Parcel geometry detail view">
                 <rect class="diagram-surface" width="${width}" height="${height}" rx="18"></rect>
-                <polygon class="parcel-fill ${selectedParcel}" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
-                ${edgeLines}
-                ${vertexDots}
+                ${content}
             </svg>
         </div>
     `;
+}
+
+function buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation = 0) {
+    const properties = feature.properties || {};
+    const insetX = Math.max(18, boxWidth * 0.08);
+    const insetY = Math.max(18, boxHeight * 0.08);
+    const maxWidth = Math.max(28, boxWidth - (insetX * 2));
+    const maxHeight = Math.max(18, boxHeight - (insetY * 2));
+    const width = Math.min(maxWidth, Math.max(28, Number(properties.width_ratio || 0.12) * boxWidth * 0.82));
+    const height = Math.min(maxHeight, Math.max(18, Number(properties.height_ratio || 0.12) * boxHeight * 0.82));
+    const rawCenterX = left + (Number(properties.anchor_x_ratio || 0.5) * boxWidth);
+    const rawCenterY = top + (Number(properties.anchor_y_ratio || 0.5) * boxHeight);
+    const centerX = clamp(rawCenterX, left + insetX + (width / 2), left + boxWidth - insetX - (width / 2));
+    const centerY = clamp(rawCenterY, top + insetY + (height / 2), top + boxHeight - insetY - (height / 2));
+    const visualKind = properties.visual_kind || "bed";
+    const selected = state.selectedKind === "feature" && state.selectedId === feature.id ? "selected" : "";
+    const rotation = Number(properties.rotation_degrees ?? parcelRotation);
+    let shape = "";
+
+    if (visualKind === "path") {
+        const points = [
+            [centerX, centerY - (height / 2)],
+            [centerX - (width / 4), centerY - (height / 6)],
+            [centerX + (width / 5), centerY + (height / 6)],
+            [centerX - (width / 8), centerY + (height / 2)],
+        ].map((point) => `${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ");
+        shape = `<polyline class="feature-shape path ${selected}" data-kind="feature" data-id="${escapeHtml(feature.id)}" data-feature-action="move" points="${points}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></polyline>`;
+    } else if (visualKind === "screen") {
+        shape = `<ellipse class="feature-shape screen ${selected}" data-kind="feature" data-id="${escapeHtml(feature.id)}" data-feature-action="move" cx="${centerX.toFixed(1)}" cy="${centerY.toFixed(1)}" rx="${(width / 2).toFixed(1)}" ry="${(height / 2).toFixed(1)}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></ellipse>`;
+    } else {
+        shape = `<rect class="feature-shape ${escapeHtml(visualKind)} ${selected}" data-kind="feature" data-id="${escapeHtml(feature.id)}" data-feature-action="move" x="${(centerX - (width / 2)).toFixed(1)}" y="${(centerY - (height / 2)).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="${Math.min(width, height, 18).toFixed(1)}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></rect>`;
+    }
+
+    const controls = selected ? buildFeatureControls(feature.id, centerX, centerY, width, height, rotation) : "";
+
+    return `
+        ${shape}
+        ${controls}
+        <text class="feature-label" x="${centerX.toFixed(1)}" y="${(centerY + 4).toFixed(1)}" text-anchor="middle">${escapeHtml(feature.label)}</text>
+    `;
+}
+
+function buildFeatureControls(featureId, centerX, centerY, width, height, rotation) {
+    const topCenter = rotatePoint(centerX, centerY - (height / 2), centerX, centerY, rotation);
+    const resizeCorner = rotatePoint(centerX + (width / 2), centerY + (height / 2), centerX, centerY, rotation);
+    const rotateHandle = rotatePoint(centerX, centerY - (height / 2) - 28, centerX, centerY, rotation);
+
+    return `
+        <g class="feature-controls">
+            <rect class="feature-outline" x="${(centerX - (width / 2)).toFixed(1)}" y="${(centerY - (height / 2)).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="${Math.min(width, height, 18).toFixed(1)}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></rect>
+            <line class="feature-handle-line" x1="${topCenter.x.toFixed(1)}" y1="${topCenter.y.toFixed(1)}" x2="${rotateHandle.x.toFixed(1)}" y2="${rotateHandle.y.toFixed(1)}"></line>
+            <circle class="feature-handle resize" data-id="${escapeHtml(featureId)}" data-feature-action="resize" cx="${resizeCorner.x.toFixed(1)}" cy="${resizeCorner.y.toFixed(1)}" r="7"></circle>
+            <circle class="feature-handle rotate" data-id="${escapeHtml(featureId)}" data-feature-action="rotate" cx="${rotateHandle.x.toFixed(1)}" cy="${rotateHandle.y.toFixed(1)}" r="7"></circle>
+        </g>
+    `;
+}
+
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function rotatePoint(x, y, centerX, centerY, degrees) {
+    const radians = degrees * Math.PI / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const dx = x - centerX;
+    const dy = y - centerY;
+    return {
+        x: centerX + (dx * cos) - (dy * sin),
+        y: centerY + (dx * sin) + (dy * cos),
+    };
+}
+
+function getParcelRotation(vertexPoints) {
+    if (vertexPoints.length < 2) {
+        return 0;
+    }
+
+    let bestAngle = 0;
+    let bestLength = 0;
+    for (let index = 0; index < vertexPoints.length; index += 1) {
+        const start = vertexPoints[index];
+        const end = vertexPoints[(index + 1) % vertexPoints.length];
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const length = Math.hypot(dx, dy);
+        if (length <= bestLength) {
+            continue;
+        }
+        bestLength = length;
+        bestAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+    }
+
+    if (bestAngle > 90) {
+        return bestAngle - 180;
+    }
+    if (bestAngle < -90) {
+        return bestAngle + 180;
+    }
+    return bestAngle;
+}
+
+function handleGardenPointerMove(event) {
+    if (!state.gardenInteraction || !state.assessment) {
+        return;
+    }
+
+    const gardenCanvas = document.getElementById("garden-canvas");
+    const svg = gardenCanvas.querySelector("svg");
+    if (!svg) {
+        return;
+    }
+
+    const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
+    const { mode, featureId, startPointer, startProperties, context } = state.gardenInteraction;
+    const feature = getFeatureObjectById(featureId);
+    if (!feature) {
+        return;
+    }
+
+    const deltaX = pointer.x - startPointer.x;
+    const deltaY = pointer.y - startPointer.y;
+    let nextAnchorX = startProperties.anchor_x_ratio;
+    let nextAnchorY = startProperties.anchor_y_ratio;
+    let nextWidthRatio = startProperties.width_ratio;
+    let nextHeightRatio = startProperties.height_ratio;
+    let nextRotation = startProperties.rotation_degrees;
+
+    if (mode === "move") {
+        const startCenterX = context.left + (startProperties.anchor_x_ratio * context.boxWidth);
+        const startCenterY = context.top + (startProperties.anchor_y_ratio * context.boxHeight);
+        const width = getFeatureRenderSize(startProperties.width_ratio, context.boxWidth, context.maxWidth, 28);
+        const height = getFeatureRenderSize(startProperties.height_ratio, context.boxHeight, context.maxHeight, 18);
+        const centerX = clamp(startCenterX + deltaX, context.left + context.insetX + (width / 2), context.left + context.boxWidth - context.insetX - (width / 2));
+        const centerY = clamp(startCenterY + deltaY, context.top + context.insetY + (height / 2), context.top + context.boxHeight - context.insetY - (height / 2));
+        nextAnchorX = (centerX - context.left) / context.boxWidth;
+        nextAnchorY = (centerY - context.top) / context.boxHeight;
+    } else if (mode === "resize") {
+        const localDelta = rotateVector(deltaX, deltaY, -startProperties.rotation_degrees);
+        nextWidthRatio = clamp(startProperties.width_ratio + ((localDelta.x * 2) / (context.boxWidth * 0.82)), 0.06, 0.9);
+        nextHeightRatio = clamp(startProperties.height_ratio + ((localDelta.y * 2) / (context.boxHeight * 0.82)), 0.06, 0.9);
+    } else if (mode === "rotate") {
+        const centerX = context.left + (startProperties.anchor_x_ratio * context.boxWidth);
+        const centerY = context.top + (startProperties.anchor_y_ratio * context.boxHeight);
+        const startAngle = Math.atan2(startPointer.y - centerY, startPointer.x - centerX);
+        const currentAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX);
+        nextRotation = normalizeDegrees(startProperties.rotation_degrees + ((currentAngle - startAngle) * 180 / Math.PI));
+    }
+
+    applyFeatureLayout(feature, {
+        anchor_x_ratio: roundValue(nextAnchorX, 4),
+        anchor_y_ratio: roundValue(nextAnchorY, 4),
+        width_ratio: roundValue(nextWidthRatio, 4),
+        height_ratio: roundValue(nextHeightRatio, 4),
+        rotation_degrees: roundValue(nextRotation, 2),
+    });
+    renderSelection();
+}
+
+function stopGardenInteraction() {
+    state.gardenInteraction = null;
+}
+
+function clientPointToSvg(svg, clientX, clientY) {
+    const point = svg.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
+    return point.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+function getGardenEditContext() {
+    const { vertexPoints } = buildDiagramGeometry(state.assessment.parcel_boundary_points || []);
+    const left = Math.min(...vertexPoints.map((point) => point.x));
+    const right = Math.max(...vertexPoints.map((point) => point.x));
+    const top = Math.min(...vertexPoints.map((point) => point.y));
+    const bottom = Math.max(...vertexPoints.map((point) => point.y));
+    const boxWidth = Math.max(right - left, 1);
+    const boxHeight = Math.max(bottom - top, 1);
+    const insetX = Math.max(18, boxWidth * 0.08);
+    const insetY = Math.max(18, boxHeight * 0.08);
+    return {
+        left,
+        top,
+        boxWidth,
+        boxHeight,
+        insetX,
+        insetY,
+        maxWidth: Math.max(28, boxWidth - (insetX * 2)),
+        maxHeight: Math.max(18, boxHeight - (insetY * 2)),
+        vertexPoints,
+    };
+}
+
+function getFeatureRenderSize(ratio, boxSize, maxSize, minSize) {
+    return Math.min(maxSize, Math.max(minSize, ratio * boxSize * 0.82));
+}
+
+function rotateVector(x, y, degrees) {
+    const radians = degrees * Math.PI / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    return {
+        x: (x * cos) - (y * sin),
+        y: (x * sin) + (y * cos),
+    };
+}
+
+function normalizeDegrees(value) {
+    let degrees = value;
+    while (degrees > 180) {
+        degrees -= 360;
+    }
+    while (degrees < -180) {
+        degrees += 360;
+    }
+    return degrees;
+}
+
+function roundValue(value, digits) {
+    const factor = 10 ** digits;
+    return Math.round(value * factor) / factor;
+}
+
+function getFeatureObjectById(featureId) {
+    return state.assessment?.objects.features.find((item) => item.id === featureId) || null;
+}
+
+function applyFeatureLayout(feature, layout) {
+    Object.assign(feature.properties, layout);
+    feature.subtitle = `${titleCase(feature.properties.visual_kind || "feature")} in ${feature.properties.zone_name}`;
+
+    const landscapeFeature = state.assessment?.landscape_features.find((item) => item.feature_id === feature.id);
+    if (landscapeFeature) {
+        Object.assign(landscapeFeature, layout);
+    }
+}
+
+function titleCase(value) {
+    return String(value)
+        .split(/[_\s-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
 }
 
 function renderDetailSummary(item) {
@@ -422,6 +799,9 @@ function buildDetailTags(item) {
     } else if (item.kind === "vertex") {
         tags.push(`<span class="detail-chip">Angle ${escapeHtml(String(item.properties.interior_angle_degrees))}°</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.linear_unit)}</span>`);
+    } else if (item.kind === "feature") {
+        tags.push(`<span class="detail-chip">${escapeHtml(item.properties.priority)}</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(item.properties.visual_kind)}</span>`);
     }
     return tags.join("");
 }
@@ -445,6 +825,20 @@ function buildSelectionSummary(item) {
                 <li>Direction: ${escapeHtml(item.properties.direction)} (${escapeHtml(String(item.properties.bearing_degrees))}°)</li>
                 <li>Length: ${escapeHtml(formatNumber(item.properties.length))} ${escapeHtml(item.properties.length_unit)}</li>
             </ul>
+        `;
+    }
+
+    if (item.kind === "feature") {
+        const moves = (item.properties.design_moves || []).map((move) => `<li>${escapeHtml(move)}</li>`).join("");
+        return `
+            <p>${escapeHtml(item.description)}</p>
+            <ul class="selection-list">
+                <li>Zone: ${escapeHtml(item.properties.zone_name)}</li>
+                <li>Priority: ${escapeHtml(item.properties.priority)}</li>
+                <li>Ontology class: ${escapeHtml(item.properties.ontology_class)}</li>
+            </ul>
+            <p>${escapeHtml(item.properties.rationale)}</p>
+            <ul class="selection-moves">${moves}</ul>
         `;
     }
 
@@ -475,6 +869,7 @@ function renderMetricSnapshot() {
         metricCard("Perimeter", `${formatNumber(data.metrics.perimeter)} ${data.metrics.linear_unit}`),
         metricCard("Irregularity", data.metrics.irregularity_index.toFixed(3)),
         metricCard("Vertices", String(data.metrics.vertex_count)),
+        metricCard("Garden Features", String(data.landscape_features.length)),
         metricCard("Bounds", `${formatNumber(data.metrics.width)} x ${formatNumber(data.metrics.height)}`),
         metricCard("Image", imageLabel),
     ];
@@ -483,8 +878,13 @@ function renderMetricSnapshot() {
 
 function renderZonesSummary() {
     const nextData = state.assessment.next_data_to_collect.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    const featureMarkup = state.assessment.landscape_features.map((feature) => `
+        <li><strong>${escapeHtml(feature.name)}:</strong> ${escapeHtml(feature.zone_name)} | ${escapeHtml(feature.priority)} priority</li>
+    `).join("");
     document.getElementById("zones-summary").innerHTML = `
-        <p>No landscape features are shown for the current parcel.</p>
+        <p>${escapeHtml(String(state.assessment.landscape_features.length))} garden design features are mapped onto the current parcel.</p>
+        <p><strong>Garden design program</strong></p>
+        <ul class="selection-list">${featureMarkup}</ul>
         <p><strong>Next data to collect</strong></p>
         <ul class="selection-list">${nextData}</ul>
     `;
@@ -515,6 +915,9 @@ function getSelectedObject() {
     }
     if (state.selectedKind === "vertex") {
         return state.assessment.objects.vertices.find((item) => item.id === state.selectedId) || null;
+    }
+    if (state.selectedKind === "feature") {
+        return state.assessment.objects.features.find((item) => item.id === state.selectedId) || null;
     }
     return null;
 }
@@ -549,21 +952,25 @@ function resetResults() {
     document.getElementById("parcel-count").textContent = "0";
     document.getElementById("edge-count").textContent = "0";
     document.getElementById("vertex-count").textContent = "0";
+    document.getElementById("feature-count").textContent = "0";
     document.getElementById("parcel-list").innerHTML = '<div class="placeholder">Load a parcel to populate the catalog.</div>';
     document.getElementById("edge-list").innerHTML = '<div class="placeholder">Boundary edges will appear here.</div>';
     document.getElementById("vertex-list").innerHTML = '<div class="placeholder">Corner vertices will appear here.</div>';
+    document.getElementById("feature-list").innerHTML = '<div class="placeholder">Garden design features will appear here.</div>';
     document.getElementById("assumptions-list").innerHTML = '<li class="placeholder-line">No assumptions loaded yet.</li>';
     document.getElementById("recommendations-list").innerHTML = '<li class="placeholder-line">No recommendations loaded yet.</li>';
     document.getElementById("detail-title").textContent = "Parcel detail view";
     document.getElementById("detail-subtitle").textContent = "Select a parcel object from the left panel or the diagram.";
     document.getElementById("detail-tags").innerHTML = '<span class="detail-chip">No object selected</span>';
     document.getElementById("detail-canvas").innerHTML = '<div class="placeholder">Interactive parcel diagram will appear here.</div>';
+    document.getElementById("garden-canvas").innerHTML = '<div class="placeholder">Garden design diagram will appear here.</div>';
     document.getElementById("selection-summary").innerHTML = '<p class="placeholder-line">Selection-specific notes will appear here.</p>';
     document.getElementById("zones-summary").innerHTML = '<p class="placeholder-line">Concept zones and next data steps will appear here.</p>';
     document.getElementById("report-preview").innerHTML = '<p class="placeholder-line">The generated markdown report will render here.</p>';
     document.getElementById("properties-title").textContent = "Inspector";
     document.getElementById("properties-list").innerHTML = '<div class="placeholder-line">Select an object to inspect its values.</div>';
     document.getElementById("metrics-grid").innerHTML = '<div class="placeholder">Parcel metrics will appear here after analysis.</div>';
+    renderActiveView();
     updateZoomControls();
 }
 

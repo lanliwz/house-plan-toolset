@@ -488,10 +488,44 @@ input {
     color: var(--text-secondary);
 }
 
+.view-toggle {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+}
+
+.view-toggle-button {
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.view-toggle-button.active {
+    background: var(--bg-panel-soft);
+    color: var(--text-primary);
+}
+
 .detail-canvas,
 .detail-card,
 .property-card {
     border-radius: 18px;
+}
+
+.view-panel {
+    display: none;
+}
+
+.view-panel.active {
+    display: block;
 }
 
 .detail-canvas {
@@ -755,6 +789,42 @@ input {
 .feature-shape.selected {
     filter: drop-shadow(0 0 10px rgba(213, 161, 75, 0.45));
     stroke-width: 4;
+    cursor: move;
+}
+
+.feature-controls {
+    pointer-events: none;
+}
+
+.feature-outline {
+    fill: rgba(255, 255, 255, 0.04);
+    stroke: rgba(213, 161, 75, 0.85);
+    stroke-width: 1.5;
+    stroke-dasharray: 6 4;
+}
+
+.feature-handle-line {
+    stroke: rgba(213, 161, 75, 0.9);
+    stroke-width: 1.5;
+}
+
+.feature-handle {
+    pointer-events: auto;
+    fill: var(--bg-panel);
+    stroke: var(--accent);
+    stroke-width: 2;
+}
+
+.feature-handle.move {
+    cursor: move;
+}
+
+.feature-handle.resize {
+    cursor: nwse-resize;
+}
+
+.feature-handle.rotate {
+    cursor: crosshair;
 }
 
 .feature-label {

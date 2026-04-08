@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=3">
+    <link rel="stylesheet" href="/static/css/styles.css?v=6">
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.umd.min.js"></script>
     <script>
         (function () {
@@ -114,6 +114,17 @@
                         </div>
                     </div>
 
+                    <div class="nav-section">
+                        <button class="nav-section-header" data-section-toggle="feature-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
+                            <span class="section-title">Garden Design</span>
+                            <span class="section-count" id="feature-count">0</span>
+                        </button>
+                        <div id="feature-list" class="catalog-list">
+                            <div class="placeholder">Garden design features will appear here.</div>
+                        </div>
+                    </div>
+
                 </div>
 
                 <div class="tab-content" id="notes-tab">
@@ -152,8 +163,21 @@
                     </div>
                 </div>
 
-                <div class="detail-canvas" id="detail-canvas">
-                    <div class="placeholder">Interactive parcel diagram will appear here.</div>
+                <div class="view-toggle" aria-label="Middle panel views">
+                    <button class="view-toggle-button active" id="view-parcel" type="button">Parcel Detail</button>
+                    <button class="view-toggle-button" id="view-garden" type="button">Garden Design</button>
+                </div>
+
+                <div class="view-panel active" id="parcel-view-panel">
+                    <div class="detail-canvas" id="detail-canvas">
+                        <div class="placeholder">Interactive parcel diagram will appear here.</div>
+                    </div>
+                </div>
+
+                <div class="view-panel" id="garden-view-panel">
+                    <div class="detail-canvas" id="garden-canvas">
+                        <div class="placeholder">Garden design diagram will appear here.</div>
+                    </div>
                 </div>
 
                 <div class="zoom-toolbar" aria-label="Diagram zoom controls">
@@ -213,6 +237,6 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=3"></script>
+    <script src="/static/js/app.js?v=6"></script>
 </body>
 </html>
