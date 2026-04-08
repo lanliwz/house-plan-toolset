@@ -149,6 +149,7 @@ def create_site_assessment(parcel_path: str | Path, image_path: str | Path | Non
         landscape_features=build_landscape_features(parcel, concept_zones),
         recommendations=build_recommendations(parcel, image),
         next_data_to_collect=build_next_data_list(),
+        house_plan_points=[],
     )
 
 

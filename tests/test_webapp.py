@@ -75,10 +75,11 @@ def test_neo4j_parcel_endpoint_returns_site_assessment(monkeypatch) -> None:
 def test_save_neo4j_features_endpoint_returns_updated_assessment(monkeypatch) -> None:
     saved: dict[str, object] = {}
 
-    def fake_save(parcel_id, *, database="hp62n", features):
+    def fake_save(parcel_id, *, database="hp62n", features, house_plan_points=None):
         saved["parcel_id"] = parcel_id
         saved["database"] = database
         saved["feature_count"] = len(features)
+        saved["house_plan_point_count"] = len(house_plan_points or [])
 
     monkeypatch.setattr("house_landscape_planner.webapp.main.save_feature_layout_to_neo4j", fake_save)
     monkeypatch.setattr(
@@ -89,31 +90,34 @@ def test_save_neo4j_features_endpoint_returns_updated_assessment(monkeypatch) ->
     response = client.post(
         "/api/neo4j/parcels/p-1/features",
         params={"database": "hp62n"},
-        json=[
-            {
-                "feature_id": "feature-terrace-room",
-                "name": "Rectangular Gray Brick Patio",
-                "ontology_class": "http://www.onto2ai-toolset.com/ontology/landscape/Landscape#OutdoorTerrace",
-                "zone_name": "Private Outdoor Living Terrace",
-                "summary": "Rectangular gray-brick patio sized for dining and everyday outdoor living close to the house.",
-                "intent": "Create one primary usable outdoor room sized for seating, dining, and everyday gathering close to the house.",
-                "placement": "Locate this zone immediately off the house on the broadest and most level-looking portion of the parcel.",
-                "rationale": "A single rectangular brick patio creates a clear gathering surface.",
-                "design_moves": ["Use one durable surface."],
-                "priority": "high",
-                "target_share_percent": 28,
-                "anchor_x_ratio": 0.52,
-                "anchor_y_ratio": 0.5,
-                "width_ratio": 0.3,
-                "height_ratio": 0.18,
-                "visual_kind": "patio",
-                "rotation_degrees": 12.5,
-            }
-        ],
+        json={
+            "features": [
+                {
+                    "feature_id": "feature-terrace-room",
+                    "name": "Rectangular Gray Brick Patio",
+                    "ontology_class": "http://www.onto2ai-toolset.com/ontology/landscape/Landscape#OutdoorTerrace",
+                    "zone_name": "Private Outdoor Living Terrace",
+                    "summary": "Rectangular gray-brick patio sized for dining and everyday outdoor living close to the house.",
+                    "intent": "Create one primary usable outdoor room sized for seating, dining, and everyday gathering close to the house.",
+                    "placement": "Locate this zone immediately off the house on the broadest and most level-looking portion of the parcel.",
+                    "rationale": "A single rectangular brick patio creates a clear gathering surface.",
+                    "design_moves": ["Use one durable surface."],
+                    "priority": "high",
+                    "target_share_percent": 28,
+                    "anchor_x_ratio": 0.52,
+                    "anchor_y_ratio": 0.5,
+                    "width_ratio": 0.3,
+                    "height_ratio": 0.18,
+                    "visual_kind": "patio",
+                    "rotation_degrees": 12.5,
+                }
+            ],
+            "house_plan_points": [[0.0, 0.0], [10.0, 0.0], [10.0, 8.0], [0.0, 8.0]],
+        },
     )
 
     assert response.status_code == 200
-    assert saved == {"parcel_id": "p-1", "database": "hp62n", "feature_count": 1}
+    assert saved == {"parcel_id": "p-1", "database": "hp62n", "feature_count": 1, "house_plan_point_count": 4}
     assert response.json()["parcel_name"] == "p-1"
 
 

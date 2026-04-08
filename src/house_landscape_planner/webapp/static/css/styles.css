@@ -484,6 +484,8 @@ input {
     align-items: center;
     gap: 8px;
     margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .compact-button {
@@ -734,6 +736,49 @@ input {
 .parcel-fill.selected {
     fill: rgba(213, 161, 75, 0.12);
     stroke: var(--accent);
+}
+
+.house-plan-fill {
+    fill: rgba(214, 132, 86, 0.18);
+    stroke: #d68456;
+    stroke-width: 2;
+    stroke-linejoin: miter;
+    cursor: move;
+}
+
+.house-plan-fill.selected {
+    fill: rgba(213, 161, 75, 0.18);
+    stroke: var(--accent);
+}
+
+.house-plan-outline {
+    fill: none;
+    stroke: rgba(213, 161, 75, 0.92);
+    stroke-width: 1.5;
+    stroke-dasharray: 6 4;
+    pointer-events: none;
+}
+
+.house-plan-edge {
+    stroke: rgba(214, 132, 86, 0.92);
+    stroke-width: 2;
+    pointer-events: none;
+}
+
+.house-plan-edge.selected {
+    stroke: var(--accent);
+}
+
+.house-vertex-dot {
+    fill: #f5efe7;
+    stroke: #d68456;
+    stroke-width: 1.5;
+    cursor: grab;
+}
+
+.house-vertex-dot.selected {
+    fill: var(--accent);
+    stroke: #f3e3b8;
 }
 
 .edge-line {

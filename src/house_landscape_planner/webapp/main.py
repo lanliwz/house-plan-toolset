@@ -18,7 +18,7 @@ from house_landscape_planner.loaders.neo4j_parcel_loader import (
     save_feature_layout_to_neo4j,
 )
 from house_landscape_planner.webapp.api import (
-    LandscapeFeatureUpdateRequest,
+    DesignSaveRequest,
     SiteAssessmentResponse,
     create_assessment_from_uploads,
     deserialize_landscape_features,
@@ -94,17 +94,22 @@ async def neo4j_parcel_analysis(parcel_id: str, database: str = DEFAULT_WEB_DATA
 @app.post("/api/neo4j/parcels/{parcel_id}/features", response_model=SiteAssessmentResponse)
 async def save_neo4j_parcel_features(
     parcel_id: str,
-    features: list[LandscapeFeatureUpdateRequest] = Body(...),
+    design: DesignSaveRequest = Body(...),
     database: str = DEFAULT_WEB_DATABASE,
 ) -> SiteAssessmentResponse:
     try:
-        save_feature_layout_to_neo4j(parcel_id, database=database, features=deserialize_landscape_features(features))
+        save_feature_layout_to_neo4j(
+            parcel_id,
+            database=database,
+            features=deserialize_landscape_features(design.features),
+            house_plan_points=design.house_plan_points,
+        )
         assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
         return serialize_assessment(assessment, parcel_name=parcel_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"Failed to save parcel features to Neo4j: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"Failed to save parcel design to Neo4j: {exc}") from exc
 
 
 @app.delete("/api/neo4j/parcels/{parcel_id}/features/{feature_id}", response_model=SiteAssessmentResponse)

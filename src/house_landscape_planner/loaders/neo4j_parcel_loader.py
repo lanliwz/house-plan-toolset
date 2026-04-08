@@ -42,6 +42,7 @@ SUBDIVISION_URI_TEMPLATE = (
 PARCEL_NS = "http://www.onto2ai-toolset.com/ontology/parcel/Parcel/#"
 DEFAULT_WEB_DATABASE = os.getenv("NEO4J_HP62N_DB_NAME", "hp62n")
 FEATURE_LAYOUT_PROPERTY = "housePlanFeatureLayoutJson"
+HOUSE_PLAN_POINTS_PROPERTY = "housePlanPolygonJson"
 
 
 @dataclass(frozen=True)
@@ -191,6 +192,7 @@ def create_site_assessment_from_neo4j(
         landscape_features=load_saved_feature_layout(parcel_props.get(FEATURE_LAYOUT_PROPERTY), generated_features),
         recommendations=build_recommendations(parcel_summary, None),
         next_data_to_collect=build_next_data_list(),
+        house_plan_points=load_saved_house_plan_points(parcel_props.get(HOUSE_PLAN_POINTS_PROPERTY)),
     )
 
 
@@ -199,20 +201,28 @@ def save_feature_layout_to_neo4j(
     *,
     database: str = DEFAULT_WEB_DATABASE,
     features: list[LandscapeFeature],
+    house_plan_points: list[tuple[float, float]] | None = None,
 ) -> None:
     config = get_neo4j_config(database=database)
     driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
     payload = json.dumps([serialize_landscape_feature(feature) for feature in features])
+    house_plan_payload = (
+        json.dumps([[float(point[0]), float(point[1])] for point in house_plan_points])
+        if house_plan_points is not None
+        else None
+    )
     try:
         with driver.session(database=config.database) as session:
             result = session.run(
                 f"""
                 MATCH (parcel:Parcel:Resource {{parcelId: $parcel_id}})
                 SET parcel.{FEATURE_LAYOUT_PROPERTY} = $payload
+                SET parcel.{HOUSE_PLAN_POINTS_PROPERTY} = $house_plan_payload
                 RETURN parcel.parcelId AS parcel_id
                 """,
                 parcel_id=parcel_id,
                 payload=payload,
+                house_plan_payload=house_plan_payload,
             ).single()
     finally:
         driver.close()
@@ -229,7 +239,12 @@ def remove_feature_from_neo4j(
 ) -> None:
     assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
     updated_features = [feature for feature in assessment.landscape_features if feature.feature_id != feature_id]
-    save_feature_layout_to_neo4j(parcel_id, database=database, features=updated_features)
+    save_feature_layout_to_neo4j(
+        parcel_id,
+        database=database,
+        features=updated_features,
+        house_plan_points=assessment.house_plan_points,
+    )
 
 
 def get_neo4j_config(*, database: str) -> Neo4jConfig:
@@ -305,6 +320,29 @@ def load_saved_feature_layout(raw_value: Any, fallback: list[LandscapeFeature]) 
             return fallback
 
     return hydrated or fallback
+
+
+def load_saved_house_plan_points(raw_value: Any) -> list[tuple[float, float]]:
+    if not raw_value:
+        return []
+
+    try:
+        payload = json.loads(str(raw_value))
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    hydrated: list[tuple[float, float]] = []
+    for item in payload:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return []
+        try:
+            hydrated.append((float(item[0]), float(item[1])))
+        except (TypeError, ValueError):
+            return []
+    return hydrated
 
 
 def ensure_database_exists(driver, database: str) -> None:

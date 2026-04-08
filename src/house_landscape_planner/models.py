@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 
 
@@ -78,3 +79,4 @@ class SiteAssessment:
     landscape_features: list[LandscapeFeature]
     recommendations: list[str]
     next_data_to_collect: list[str]
+    house_plan_points: list[tuple[float, float]] = field(default_factory=list)

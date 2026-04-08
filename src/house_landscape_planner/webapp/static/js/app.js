@@ -7,6 +7,7 @@ const state = {
     reportMarkdown: "",
     detailZoom: 1,
     gardenInteraction: null,
+    housePlanInteraction: null,
     persistenceMode: "session",
     currentNeo4jParcelId: null,
     currentNeo4jDatabase: null,
@@ -26,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupViewToggle();
     setupZoomControls();
     setupGardenEditing();
+    setupHousePlanEditing();
     loadNeo4jParcelOptions();
 });
 
@@ -143,6 +145,7 @@ function setupForm() {
         state.reportMarkdown = "";
         state.detailZoom = 1;
         state.gardenInteraction = null;
+        state.housePlanInteraction = null;
         state.persistenceMode = "session";
         state.currentNeo4jParcelId = null;
         state.currentNeo4jDatabase = null;
@@ -156,6 +159,10 @@ function setupForm() {
 function setupActions() {
     document.getElementById("download-report").addEventListener("click", downloadReport);
     document.getElementById("load-neo4j").addEventListener("click", loadSelectedNeo4jParcel);
+    document.getElementById("add-house-plan").addEventListener("click", addHousePlan);
+    document.getElementById("remove-house-plan").addEventListener("click", removeHousePlan);
+    document.getElementById("add-house-vertex").addEventListener("click", addHousePlanVertex);
+    document.getElementById("remove-house-vertex").addEventListener("click", removeHousePlanVertex);
     document.getElementById("save-features").addEventListener("click", saveFeatures);
     document.getElementById("remove-feature").addEventListener("click", removeSelectedFeature);
 }
@@ -236,6 +243,61 @@ function setupGardenEditing() {
     window.addEventListener("pointermove", handleGardenPointerMove);
     window.addEventListener("pointerup", stopGardenInteraction);
     window.addEventListener("pointercancel", stopGardenInteraction);
+}
+
+function setupHousePlanEditing() {
+    const canvas = document.getElementById("detail-canvas");
+    canvas.addEventListener("pointerdown", (event) => {
+        const target = event.target.closest("[data-house-plan-action]");
+        if (!target || !state.assessment) {
+            return;
+        }
+
+        const action = target.dataset.housePlanAction;
+        const housePoints = state.assessment.house_plan_points || [];
+        if (!action || !housePoints.length) {
+            return;
+        }
+
+        const svg = canvas.querySelector("svg");
+        if (!svg) {
+            return;
+        }
+
+        const pointIndex = Number(target.dataset.index);
+        if (action === "move-vertex" && !Number.isInteger(pointIndex)) {
+            return;
+        }
+
+        if (action === "move-plan") {
+            state.selectedKind = "house-plan";
+            state.selectedId = "house-plan";
+        } else if (action === "move-vertex") {
+            state.selectedKind = "house-vertex";
+            state.selectedId = getHouseVertexId(pointIndex);
+        }
+
+        event.preventDefault();
+        const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
+        state.housePlanInteraction = {
+            mode: action,
+            pointIndex,
+            pointerId: event.pointerId,
+            startPointer: pointer,
+            startPoints: housePoints.map((point) => [...point]),
+            geometry: buildDiagramGeometry(state.assessment.parcel_boundary_points || []),
+            bounds: getSourceBounds(state.assessment.parcel_boundary_points || []),
+        };
+        renderSelection();
+
+        if (typeof target.setPointerCapture === "function") {
+            target.setPointerCapture(event.pointerId);
+        }
+    });
+
+    window.addEventListener("pointermove", handleHousePlanPointerMove);
+    window.addEventListener("pointerup", stopHousePlanInteraction);
+    window.addEventListener("pointercancel", stopHousePlanInteraction);
 }
 
 function setupZoomControls() {
@@ -352,6 +414,7 @@ async function loadSelectedNeo4jParcel() {
 }
 
 function applyAssessment(payload) {
+    ensureHousePlanModel(payload);
     state.assessment = payload;
     state.persistenceMode = payload.persistence_mode || "session";
     state.selectedKind = "parcel";
@@ -370,18 +433,112 @@ function applyAssessment(payload) {
     renderSelection();
 }
 
+function ensureHousePlanModel(payload) {
+    if (!Array.isArray(payload.house_plan_points)) {
+        payload.house_plan_points = [];
+    } else if (payload.house_plan_points.length > 0 && payload.house_plan_points.length < 3) {
+        payload.house_plan_points = [];
+    }
+    syncHousePlanObjects(payload);
+}
+
+function syncHousePlanObjects(payload) {
+    const housePoints = Array.isArray(payload.house_plan_points) ? payload.house_plan_points : [];
+    const linearUnit = payload.metrics?.linear_unit || payload.linear_unit || "feet";
+    const areaUnit = (payload.metrics?.area_unit || "square feet") === "square feet" ? "sq ft" : (payload.metrics?.area_unit || "square feet");
+
+    if (!housePoints.length) {
+        payload.objects.housePlan = null;
+        payload.objects.houseVertices = [];
+        return;
+    }
+
+    const bounds = getSourceBounds(housePoints);
+    const width = roundValue(bounds.maxX - bounds.minX, 2);
+    const height = roundValue(bounds.maxY - bounds.minY, 2);
+    const area = roundValue(computePolygonArea(housePoints), 2);
+    const perimeter = roundValue(computePolygonPerimeter(housePoints), 2);
+
+    payload.objects.housePlan = {
+        kind: "house-plan",
+        id: "house-plan",
+        label: "House Plan",
+        subtitle: `${housePoints.length} edges | ${formatNumber(area)} ${areaUnit}`,
+        description: "Editable multi-edge house footprint placed inside the parcel.",
+        properties: {
+            vertex_count: housePoints.length,
+            edge_count: housePoints.length,
+            width,
+            height,
+            perimeter,
+            area,
+            linear_unit: linearUnit,
+            area_unit: areaUnit,
+        },
+    };
+
+    payload.objects.houseVertices = housePoints.map((point, index) => ({
+        kind: "house-vertex",
+        id: getHouseVertexId(index),
+        label: `House Vertex ${index + 1}`,
+        subtitle: `${formatNumber(point[0])}, ${formatNumber(point[1])}`,
+        description: "Editable vertex on the house-plan footprint.",
+        properties: {
+            linear_unit: linearUnit,
+            source_x: roundValue(point[0], 4),
+            source_y: roundValue(point[1], 4),
+            vertex_index: index + 1,
+        },
+    }));
+}
+
+function buildDefaultHousePlanPoints(parcelPoints) {
+    const points = normalizePolygonPoints(parcelPoints);
+    if (points.length < 3) {
+        return [];
+    }
+
+    const bounds = getSourceBounds(points);
+    const spanX = Math.max(bounds.maxX - bounds.minX, 1);
+    const spanY = Math.max(bounds.maxY - bounds.minY, 1);
+    const insetX = spanX * 0.24;
+    const insetY = spanY * 0.24;
+
+    return [
+        [bounds.minX + insetX, bounds.minY + insetY],
+        [bounds.maxX - insetX, bounds.minY + insetY],
+        [bounds.maxX - insetX, bounds.maxY - insetY],
+        [bounds.minX + insetX, bounds.maxY - insetY],
+    ].map((point) => point.map((value) => roundValue(value, 4)));
+}
+
 function renderCatalog() {
-    const { parcel, edges, vertices, features } = state.assessment.objects;
+    const {
+        parcel,
+        edges,
+        vertices,
+        features,
+        housePlan,
+        houseVertices = [],
+    } = state.assessment.objects;
     const patioFeatures = getPatioFeatures();
     document.getElementById("parcel-count").textContent = "1";
     document.getElementById("edge-count").textContent = String(edges.length);
     document.getElementById("vertex-count").textContent = String(vertices.length);
+    document.getElementById("house-plan-count").textContent = housePlan ? "1" : "0";
+    document.getElementById("house-vertex-count").textContent = String(houseVertices.length);
     document.getElementById("feature-count").textContent = String(features.length);
     document.getElementById("patio-count").textContent = String(patioFeatures.length);
 
     document.getElementById("parcel-list").innerHTML = renderCatalogItem(parcel);
     document.getElementById("edge-list").innerHTML = edges.map(renderCatalogItem).join("");
     document.getElementById("vertex-list").innerHTML = vertices.map(renderCatalogItem).join("");
+    document.getElementById("house-plan-list").innerHTML = housePlan
+        ? renderCatalogItem(housePlan)
+        : '<div class="placeholder">Add a house plan to start editing the footprint.</div>';
+    document.getElementById("house-vertex-list").innerHTML = houseVertices.length
+        ? houseVertices.map(renderCatalogItem).join("")
+        : '<div class="placeholder">House-plan vertices will appear here.</div>';
     document.getElementById("feature-list").innerHTML = features.map(renderCatalogItem).join("");
     document.getElementById("patio-list").innerHTML = patioFeatures.length
         ? patioFeatures.map(renderCatalogItem).join("")
@@ -475,8 +632,9 @@ function buildParcelSvg(data) {
         return '<div class="placeholder">Interactive parcel diagram will appear here.</div>';
     }
 
-    const { width, height, vertexPoints, polygonPoints } = buildDiagramGeometry(points);
+    const { width, height, vertexPoints, polygonPoints, project } = buildDiagramGeometry(points);
     const selectedParcel = state.selectedKind === "parcel" ? "selected" : "";
+    const housePlanSvg = buildHousePlanSvg(data, project);
 
     const edgeLines = data.objects.edges.map((edge, index) => {
         const start = vertexPoints[index];
@@ -504,6 +662,7 @@ function buildParcelSvg(data) {
 
     return buildSvgFrame(width, height, `
         <polygon class="parcel-fill ${selectedParcel}" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
+        ${housePlanSvg}
         ${edgeLines}
         ${vertexDots}
     `);
@@ -538,6 +697,40 @@ function buildGardenSvg(data) {
             ${featureShapes}
         </g>
     `);
+}
+
+function buildHousePlanSvg(data, project) {
+    const housePoints = (data.house_plan_points || []).map(project);
+    if (!housePoints.length) {
+        return "";
+    }
+
+    const polygonPoints = housePoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+    const selectedPlan = state.selectedKind === "house-plan" ? "selected" : "";
+    const edgeMarkup = housePoints.map((point, index) => {
+        const next = housePoints[(index + 1) % housePoints.length];
+        return `
+            <line class="house-plan-edge ${selectedPlan}"
+                x1="${point.x.toFixed(1)}" y1="${point.y.toFixed(1)}"
+                x2="${next.x.toFixed(1)}" y2="${next.y.toFixed(1)}"></line>
+        `;
+    }).join("");
+    const vertexMarkup = housePoints.map((point, index) => {
+        const selected = state.selectedKind === "house-vertex" && state.selectedId === getHouseVertexId(index) ? "selected" : "";
+        return `
+            <circle class="house-vertex-dot ${selected}" data-kind="house-vertex" data-id="${escapeHtml(getHouseVertexId(index))}" data-house-plan-action="move-vertex" data-index="${index}"
+                cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4"></circle>
+            <text class="canvas-label" x="${(point.x + 8).toFixed(1)}" y="${(point.y - 8).toFixed(1)}">${index + 1}</text>
+        `;
+    }).join("");
+    const outline = selectedPlan ? `<polygon class="house-plan-outline" points="${polygonPoints}"></polygon>` : "";
+
+    return `
+        ${edgeMarkup}
+        <polygon class="house-plan-fill ${selectedPlan}" data-kind="house-plan" data-id="house-plan" data-house-plan-action="move-plan" points="${polygonPoints}"></polygon>
+        ${outline}
+        ${vertexMarkup}
+    `;
 }
 
 function buildPatioSvg(data) {
@@ -593,7 +786,7 @@ function buildDiagramGeometry(points) {
 
     const vertexPoints = points.slice(0, -1).map(project);
     const polygonPoints = vertexPoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
-    return { width, height, vertexPoints, polygonPoints };
+    return { width, height, margin, minX, minY, scale, vertexPoints, polygonPoints, project };
 }
 
 function buildSvgFrame(width, height, content) {
@@ -625,6 +818,7 @@ function buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation
     const visualKind = properties.visual_kind || "bed";
     const selected = state.selectedKind === "feature" && state.selectedId === feature.id ? "selected" : "";
     const rotation = Number(properties.rotation_degrees ?? parcelRotation);
+    const cornerRadius = visualKind === "patio" ? 0 : Math.min(width, height, 18);
     let shape = "";
 
     if (visualKind === "path") {
@@ -638,10 +832,10 @@ function buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation
     } else if (visualKind === "screen") {
         shape = `<ellipse class="feature-shape screen ${selected}" data-kind="feature" data-id="${escapeHtml(feature.id)}" data-feature-action="move" cx="${centerX.toFixed(1)}" cy="${centerY.toFixed(1)}" rx="${(width / 2).toFixed(1)}" ry="${(height / 2).toFixed(1)}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></ellipse>`;
     } else {
-        shape = `<rect class="feature-shape ${escapeHtml(visualKind)} ${selected}" data-kind="feature" data-id="${escapeHtml(feature.id)}" data-feature-action="move" x="${(centerX - (width / 2)).toFixed(1)}" y="${(centerY - (height / 2)).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="${Math.min(width, height, 18).toFixed(1)}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></rect>`;
+        shape = `<rect class="feature-shape ${escapeHtml(visualKind)} ${selected}" data-kind="feature" data-id="${escapeHtml(feature.id)}" data-feature-action="move" x="${(centerX - (width / 2)).toFixed(1)}" y="${(centerY - (height / 2)).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="${cornerRadius.toFixed(1)}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></rect>`;
     }
 
-    const controls = selected ? buildFeatureControls(feature.id, centerX, centerY, width, height, rotation) : "";
+    const controls = selected ? buildFeatureControls(feature.id, centerX, centerY, width, height, rotation, cornerRadius) : "";
 
     return `
         ${shape}
@@ -650,14 +844,14 @@ function buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation
     `;
 }
 
-function buildFeatureControls(featureId, centerX, centerY, width, height, rotation) {
+function buildFeatureControls(featureId, centerX, centerY, width, height, rotation, cornerRadius) {
     const topCenter = rotatePoint(centerX, centerY - (height / 2), centerX, centerY, rotation);
     const resizeCorner = rotatePoint(centerX + (width / 2), centerY + (height / 2), centerX, centerY, rotation);
     const rotateHandle = rotatePoint(centerX, centerY - (height / 2) - 28, centerX, centerY, rotation);
 
     return `
         <g class="feature-controls">
-            <rect class="feature-outline" x="${(centerX - (width / 2)).toFixed(1)}" y="${(centerY - (height / 2)).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="${Math.min(width, height, 18).toFixed(1)}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></rect>
+            <rect class="feature-outline" x="${(centerX - (width / 2)).toFixed(1)}" y="${(centerY - (height / 2)).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="${cornerRadius.toFixed(1)}" transform="rotate(${rotation.toFixed(1)} ${centerX.toFixed(1)} ${centerY.toFixed(1)})"></rect>
             <line class="feature-handle-line" x1="${topCenter.x.toFixed(1)}" y1="${topCenter.y.toFixed(1)}" x2="${rotateHandle.x.toFixed(1)}" y2="${rotateHandle.y.toFixed(1)}"></line>
             <circle class="feature-handle resize" data-id="${escapeHtml(featureId)}" data-feature-action="resize" cx="${resizeCorner.x.toFixed(1)}" cy="${resizeCorner.y.toFixed(1)}" r="7"></circle>
             <circle class="feature-handle rotate" data-id="${escapeHtml(featureId)}" data-feature-action="rotate" cx="${rotateHandle.x.toFixed(1)}" cy="${rotateHandle.y.toFixed(1)}" r="7"></circle>
@@ -778,6 +972,46 @@ function stopGardenInteraction(event) {
     state.gardenInteraction = null;
 }
 
+function handleHousePlanPointerMove(event) {
+    if (!state.housePlanInteraction || !state.assessment) {
+        return;
+    }
+
+    if (event.pointerId !== state.housePlanInteraction.pointerId) {
+        return;
+    }
+
+    const svg = document.getElementById("detail-canvas")?.querySelector("svg");
+    if (!svg) {
+        return;
+    }
+
+    const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
+    const deltaX = (pointer.x - state.housePlanInteraction.startPointer.x) / state.housePlanInteraction.geometry.scale;
+    const deltaY = -(pointer.y - state.housePlanInteraction.startPointer.y) / state.housePlanInteraction.geometry.scale;
+    const { bounds, mode, pointIndex, startPoints } = state.housePlanInteraction;
+
+    if (mode === "move-plan") {
+        updateHousePlanPoints(clampTranslatedHousePlan(startPoints, deltaX, deltaY, bounds));
+    } else if (mode === "move-vertex") {
+        const nextPoints = startPoints.map((point) => [...point]);
+        nextPoints[pointIndex] = [
+            roundValue(clamp(startPoints[pointIndex][0] + deltaX, bounds.minX, bounds.maxX), 4),
+            roundValue(clamp(startPoints[pointIndex][1] + deltaY, bounds.minY, bounds.maxY), 4),
+        ];
+        updateHousePlanPoints(nextPoints);
+    }
+
+    renderSelection();
+}
+
+function stopHousePlanInteraction(event) {
+    if (event && state.housePlanInteraction && event.pointerId !== state.housePlanInteraction.pointerId) {
+        return;
+    }
+    state.housePlanInteraction = null;
+}
+
 function clientPointToSvg(svg, clientX, clientY) {
     const point = svg.createSVGPoint();
     point.x = clientX;
@@ -836,6 +1070,153 @@ function normalizeDegrees(value) {
 function roundValue(value, digits) {
     const factor = 10 ** digits;
     return Math.round(value * factor) / factor;
+}
+
+function getHouseVertexId(index) {
+    return `house-vertex-${index + 1}`;
+}
+
+function normalizePolygonPoints(points) {
+    if (!Array.isArray(points)) {
+        return [];
+    }
+    return points.slice(0, -1).map((point) => [Number(point[0]), Number(point[1])]);
+}
+
+function getSourceBounds(points) {
+    if (!points.length) {
+        return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    }
+    const normalizedPoints = points.length && points[0][0] === points[points.length - 1]?.[0] && points[0][1] === points[points.length - 1]?.[1]
+        ? normalizePolygonPoints(points)
+        : points.map((point) => [Number(point[0]), Number(point[1])]);
+    const xs = normalizedPoints.map((point) => point[0]);
+    const ys = normalizedPoints.map((point) => point[1]);
+    return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys),
+    };
+}
+
+function computePolygonArea(points) {
+    let sum = 0;
+    for (let index = 0; index < points.length; index += 1) {
+        const [x1, y1] = points[index];
+        const [x2, y2] = points[(index + 1) % points.length];
+        sum += (x1 * y2) - (x2 * y1);
+    }
+    return Math.abs(sum) / 2;
+}
+
+function computePolygonPerimeter(points) {
+    let sum = 0;
+    for (let index = 0; index < points.length; index += 1) {
+        const [x1, y1] = points[index];
+        const [x2, y2] = points[(index + 1) % points.length];
+        sum += Math.hypot(x2 - x1, y2 - y1);
+    }
+    return sum;
+}
+
+function updateHousePlanPoints(points) {
+    state.assessment.house_plan_points = points.map((point) => point.map((value) => roundValue(value, 4)));
+    syncHousePlanObjects(state.assessment);
+}
+
+function clampTranslatedHousePlan(points, deltaX, deltaY, bounds) {
+    const translated = points.map((point) => [point[0] + deltaX, point[1] + deltaY]);
+    const translatedBounds = getSourceBounds([...translated, translated[0]]);
+    let adjustX = 0;
+    let adjustY = 0;
+
+    if (translatedBounds.minX < bounds.minX) {
+        adjustX = bounds.minX - translatedBounds.minX;
+    } else if (translatedBounds.maxX > bounds.maxX) {
+        adjustX = bounds.maxX - translatedBounds.maxX;
+    }
+
+    if (translatedBounds.minY < bounds.minY) {
+        adjustY = bounds.minY - translatedBounds.minY;
+    } else if (translatedBounds.maxY > bounds.maxY) {
+        adjustY = bounds.maxY - translatedBounds.maxY;
+    }
+
+    return translated.map((point) => [
+        roundValue(point[0] + adjustX, 4),
+        roundValue(point[1] + adjustY, 4),
+    ]);
+}
+
+function addHousePlan() {
+    if (!state.assessment || state.assessment.house_plan_points?.length) {
+        return;
+    }
+    updateHousePlanPoints(buildDefaultHousePlanPoints(state.assessment.parcel_boundary_points || []));
+    state.selectedKind = "house-plan";
+    state.selectedId = "house-plan";
+    renderSelection();
+}
+
+function removeHousePlan() {
+    if (!state.assessment || !state.assessment.house_plan_points?.length) {
+        return;
+    }
+    state.assessment.house_plan_points = [];
+    syncHousePlanObjects(state.assessment);
+    state.selectedKind = "parcel";
+    state.selectedId = "parcel";
+    renderSelection();
+}
+
+function addHousePlanVertex() {
+    if (!state.assessment || !state.assessment.house_plan_points?.length) {
+        return;
+    }
+
+    const points = state.assessment.house_plan_points.map((point) => [...point]);
+    let insertAfterIndex = 0;
+
+    if (state.selectedKind === "house-vertex") {
+        insertAfterIndex = Math.max(0, Number(state.selectedId.split("-").pop()) - 1);
+    } else {
+        let bestLength = -1;
+        points.forEach((point, index) => {
+            const next = points[(index + 1) % points.length];
+            const length = Math.hypot(next[0] - point[0], next[1] - point[1]);
+            if (length > bestLength) {
+                bestLength = length;
+                insertAfterIndex = index;
+            }
+        });
+    }
+
+    const current = points[insertAfterIndex];
+    const next = points[(insertAfterIndex + 1) % points.length];
+    const midpoint = [
+        roundValue((current[0] + next[0]) / 2, 4),
+        roundValue((current[1] + next[1]) / 2, 4),
+    ];
+    points.splice(insertAfterIndex + 1, 0, midpoint);
+    updateHousePlanPoints(points);
+    state.selectedKind = "house-vertex";
+    state.selectedId = getHouseVertexId(insertAfterIndex + 1);
+    renderSelection();
+}
+
+function removeHousePlanVertex() {
+    if (!state.assessment || state.selectedKind !== "house-vertex" || state.assessment.house_plan_points.length <= 3) {
+        return;
+    }
+
+    const index = Math.max(0, Number(state.selectedId.split("-").pop()) - 1);
+    const points = state.assessment.house_plan_points.map((point) => [...point]);
+    points.splice(index, 1);
+    updateHousePlanPoints(points);
+    state.selectedKind = "house-plan";
+    state.selectedId = "house-plan";
+    renderSelection();
 }
 
 function getFeatureObjectById(featureId) {
@@ -903,6 +1284,12 @@ function buildDetailTags(item) {
     if (item.kind === "parcel") {
         tags.push(`<span class="detail-chip">${escapeHtml(state.assessment.geometry_type)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(state.assessment.metrics.area, state.assessment.metrics.area_unit))}</span>`);
+    } else if (item.kind === "house-plan") {
+        tags.push(`<span class="detail-chip">${escapeHtml(String(item.properties.vertex_count))} vertices</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</span>`);
+    } else if (item.kind === "house-vertex") {
+        tags.push(`<span class="detail-chip">Vertex ${escapeHtml(String(item.properties.vertex_index))}</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(item.properties.linear_unit)}</span>`);
     } else if (item.kind === "edge") {
         tags.push(`<span class="detail-chip">${escapeHtml(formatNumber(item.properties.length))} ${escapeHtml(item.properties.linear_unit)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.direction)}</span>`);
@@ -938,6 +1325,29 @@ function buildSelectionSummary(item) {
         `;
     }
 
+    if (item.kind === "house-plan") {
+        return `
+            <p>${escapeHtml(item.description)}</p>
+            <ul class="selection-list">
+                <li>Edges: ${escapeHtml(String(item.properties.edge_count))}</li>
+                <li>Width: ${escapeHtml(formatNumber(item.properties.width))} ${escapeHtml(item.properties.linear_unit)}</li>
+                <li>Height: ${escapeHtml(formatNumber(item.properties.height))} ${escapeHtml(item.properties.linear_unit)}</li>
+                <li>Area: ${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</li>
+            </ul>
+        `;
+    }
+
+    if (item.kind === "house-vertex") {
+        return `
+            <p>${escapeHtml(item.description)}</p>
+            <ul class="selection-list">
+                <li>X: ${escapeHtml(formatNumber(item.properties.source_x))}</li>
+                <li>Y: ${escapeHtml(formatNumber(item.properties.source_y))}</li>
+                <li>Index: ${escapeHtml(String(item.properties.vertex_index))}</li>
+            </ul>
+        `;
+    }
+
     if (item.kind === "feature") {
         const moves = (item.properties.design_moves || []).map((move) => `<li>${escapeHtml(move)}</li>`).join("");
         return `
@@ -964,11 +1374,45 @@ function buildSelectionSummary(item) {
 
 function renderProperties(item) {
     document.getElementById("properties-title").textContent = item.label;
-    const entries = Object.entries(item.properties || {});
+    const propertiesData = buildDisplayProperties(item);
+    const entries = Object.entries(propertiesData);
     const properties = document.getElementById("properties-list");
     properties.innerHTML = entries.map(([key, value]) => (
-        `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(formatPropertyValue(key, value, item.properties || {}))}</dd>`
+        `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(formatPropertyValue(key, value, propertiesData))}</dd>`
     )).join("");
+}
+
+function buildDisplayProperties(item) {
+    const baseProperties = { ...(item.properties || {}) };
+    if (item.kind !== "feature" || baseProperties.visual_kind !== "patio" || !state.assessment) {
+        return baseProperties;
+    }
+
+    const patioMetrics = computePatioMetrics(baseProperties);
+    return {
+        patio_length_feet: patioMetrics.lengthFeet,
+        patio_width_feet: patioMetrics.widthFeet,
+        patio_area_square_feet: patioMetrics.areaSquareFeet,
+        ...baseProperties,
+    };
+}
+
+function computePatioMetrics(properties) {
+    const parcelWidth = Number(state.assessment.metrics.width || 0);
+    const parcelHeight = Number(state.assessment.metrics.height || 0);
+    const widthRatio = Number(properties.width_ratio || 0);
+    const heightRatio = Number(properties.height_ratio || 0);
+    const patioWidth = widthRatio * parcelWidth * 0.82;
+    const patioHeight = heightRatio * parcelHeight * 0.82;
+    const widthFeet = convertLengthToFeet(patioWidth, state.assessment.metrics.linear_unit);
+    const heightFeet = convertLengthToFeet(patioHeight, state.assessment.metrics.linear_unit);
+    const lengthFeet = Math.max(widthFeet, heightFeet);
+    const shortWidthFeet = Math.min(widthFeet, heightFeet);
+    return {
+        lengthFeet: roundValue(lengthFeet, 2),
+        widthFeet: roundValue(shortWidthFeet, 2),
+        areaSquareFeet: roundValue(lengthFeet * shortWidthFeet, 2),
+    };
 }
 
 function renderMetricSnapshot() {
@@ -1020,6 +1464,12 @@ function getSelectedObject() {
     if (state.selectedKind === "parcel") {
         return state.assessment.objects.parcel;
     }
+    if (state.selectedKind === "house-plan") {
+        return state.assessment.objects.housePlan;
+    }
+    if (state.selectedKind === "house-vertex") {
+        return state.assessment.objects.houseVertices.find((item) => item.id === state.selectedId) || null;
+    }
     if (state.selectedKind === "edge") {
         return state.assessment.objects.edges.find((item) => item.id === state.selectedId) || null;
     }
@@ -1033,13 +1483,23 @@ function getSelectedObject() {
 }
 
 function updateFeatureActions() {
+    const addHousePlanButton = document.getElementById("add-house-plan");
+    const removeHousePlanButton = document.getElementById("remove-house-plan");
+    const addHouseVertexButton = document.getElementById("add-house-vertex");
+    const removeHouseVertexButton = document.getElementById("remove-house-vertex");
     const saveButton = document.getElementById("save-features");
     const removeButton = document.getElementById("remove-feature");
     const hasAssessment = Boolean(state.assessment);
+    const hasHousePlan = hasAssessment && Boolean(state.assessment.objects.housePlan);
+    const isHouseVertexSelected = hasAssessment && state.selectedKind === "house-vertex" && Boolean(getSelectedObject());
     const isFeatureSelected = hasAssessment && state.selectedKind === "feature" && Boolean(getSelectedObject());
 
     const isNeo4jBacked = state.persistenceMode === "neo4j" && Boolean(state.currentNeo4jParcelId);
-    saveButton.disabled = !hasAssessment || !state.assessment.objects.features.length || !isNeo4jBacked;
+    addHousePlanButton.disabled = !hasAssessment || hasHousePlan;
+    removeHousePlanButton.disabled = !hasHousePlan;
+    addHouseVertexButton.disabled = !hasHousePlan;
+    removeHouseVertexButton.disabled = !isHouseVertexSelected || state.assessment.house_plan_points.length <= 3;
+    saveButton.disabled = !hasAssessment || !isNeo4jBacked;
     removeButton.disabled = !isFeatureSelected || !isNeo4jBacked;
 }
 
@@ -1073,11 +1533,15 @@ function resetResults() {
     document.getElementById("parcel-count").textContent = "0";
     document.getElementById("edge-count").textContent = "0";
     document.getElementById("vertex-count").textContent = "0";
+    document.getElementById("house-plan-count").textContent = "0";
+    document.getElementById("house-vertex-count").textContent = "0";
     document.getElementById("feature-count").textContent = "0";
     document.getElementById("patio-count").textContent = "0";
     document.getElementById("parcel-list").innerHTML = '<div class="placeholder">Load a parcel to populate the catalog.</div>';
     document.getElementById("edge-list").innerHTML = '<div class="placeholder">Boundary edges will appear here.</div>';
     document.getElementById("vertex-list").innerHTML = '<div class="placeholder">Corner vertices will appear here.</div>';
+    document.getElementById("house-plan-list").innerHTML = '<div class="placeholder">Editable house footprint will appear here.</div>';
+    document.getElementById("house-vertex-list").innerHTML = '<div class="placeholder">House-plan vertices will appear here.</div>';
     document.getElementById("feature-list").innerHTML = '<div class="placeholder">Garden design features will appear here.</div>';
     document.getElementById("patio-list").innerHTML = '<div class="placeholder">Patio design features will appear here.</div>';
     document.getElementById("assumptions-list").innerHTML = '<li class="placeholder-line">No assumptions loaded yet.</li>';
@@ -1151,7 +1615,7 @@ function downloadReport() {
 
 async function saveFeatures() {
     if (!state.assessment || state.persistenceMode !== "neo4j" || !state.currentNeo4jParcelId) {
-        updateStatus("Feature saving is only available for parcels loaded from Neo4j.", true);
+        updateStatus("Saving is only available for parcels loaded from Neo4j.", true);
         return;
     }
 
@@ -1161,15 +1625,21 @@ async function saveFeatures() {
             {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(state.assessment.landscape_features),
+                body: JSON.stringify({
+                    features: state.assessment.landscape_features,
+                    house_plan_points: state.assessment.house_plan_points || [],
+                }),
             },
         );
         const payload = await response.json();
         if (!response.ok) {
-            throw new Error(payload.detail || "Unable to save features to Neo4j.");
+            throw new Error(payload.detail || "Unable to save design changes to Neo4j.");
         }
         applyAssessment(payload);
-        updateStatus(`Saved ${payload.landscape_features.length} features to Neo4j.`, false);
+        updateStatus(
+            `Saved ${payload.landscape_features.length} features and ${payload.house_plan_points.length} house-plan points to Neo4j.`,
+            false,
+        );
     } catch (error) {
         updateStatus(error.message, true);
     }
@@ -1226,7 +1696,26 @@ function formatPropertyValue(key, value, properties) {
     if (key === "area_unit" && properties.area_unit === "square feet") {
         return "acre";
     }
+    if ((key === "width" || key === "height" || key === "perimeter") && properties.linear_unit) {
+        return `${formatNumber(value)} ${properties.linear_unit}`;
+    }
+    if (key === "patio_length_feet" || key === "patio_width_feet") {
+        return `${formatNumber(value)} ft`;
+    }
+    if (key === "patio_area_square_feet") {
+        return `${formatNumber(value)} sq ft`;
+    }
     return stringifyValue(value);
+}
+
+function convertLengthToFeet(value, linearUnit) {
+    if (linearUnit === "feet") {
+        return value;
+    }
+    if (linearUnit === "meters") {
+        return value * 3.28084;
+    }
+    return value;
 }
 
 function escapeHtml(value) {

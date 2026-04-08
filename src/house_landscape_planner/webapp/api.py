@@ -88,6 +88,11 @@ class LandscapeFeatureUpdateRequest(BaseModel):
     rotation_degrees: float | None = None
 
 
+class DesignSaveRequest(BaseModel):
+    features: list[LandscapeFeatureUpdateRequest]
+    house_plan_points: list[tuple[float, float]] = Field(default_factory=list)
+
+
 class ParcelObjectResponse(BaseModel):
     id: str
     kind: str
@@ -145,6 +150,7 @@ class SiteAssessmentResponse(BaseModel):
     report_markdown: str
     diagram_svg: str
     parcel_boundary_points: list[tuple[float, float]] = Field(default_factory=list)
+    house_plan_points: list[tuple[float, float]] = Field(default_factory=list)
     objects: SiteObjectsResponse
     persistence_mode: str = "session"
 
@@ -215,6 +221,7 @@ def serialize_assessment(
         report_markdown=render_markdown_report(assessment),
         diagram_svg=render_site_diagram_svg(assessment),
         parcel_boundary_points=list(assessment.parcel.boundary_points),
+        house_plan_points=[(float(point[0]), float(point[1])) for point in assessment.house_plan_points],
         objects=serialize_site_objects(assessment, parcel_name=parcel_name),
         persistence_mode="neo4j" if str(assessment.parcel.source_path).startswith("/neo4j/") else "session",
     )

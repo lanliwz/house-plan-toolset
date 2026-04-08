@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=9">
+    <link rel="stylesheet" href="/static/css/styles.css?v=11">
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.umd.min.js"></script>
     <script>
         (function () {
@@ -115,6 +115,28 @@
                     </div>
 
                     <div class="nav-section">
+                        <button class="nav-section-header" data-section-toggle="house-plan-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
+                            <span class="section-title">House Plan</span>
+                            <span class="section-count" id="house-plan-count">0</span>
+                        </button>
+                        <div id="house-plan-list" class="catalog-list">
+                            <div class="placeholder">Editable house footprint will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="nav-section">
+                        <button class="nav-section-header" data-section-toggle="house-vertex-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
+                            <span class="section-title">House Vertices</span>
+                            <span class="section-count" id="house-vertex-count">0</span>
+                        </button>
+                        <div id="house-vertex-list" class="catalog-list">
+                            <div class="placeholder">House-plan vertices will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="nav-section">
                         <button class="nav-section-header" data-section-toggle="feature-list" type="button" aria-expanded="true">
                             <span class="section-toggle">▼</span>
                             <span class="section-title">Garden Design</span>
@@ -173,7 +195,11 @@
                         <span class="detail-chip">No object selected</span>
                     </div>
                     <div class="feature-actions">
-                        <button class="button secondary compact-button" id="save-features" type="button" disabled>Save Features</button>
+                        <button class="button secondary compact-button" id="add-house-plan" type="button" disabled>Add House Plan</button>
+                        <button class="button ghost compact-button" id="remove-house-plan" type="button" disabled>Remove House Plan</button>
+                        <button class="button secondary compact-button" id="add-house-vertex" type="button" disabled>Add Vertex</button>
+                        <button class="button ghost compact-button" id="remove-house-vertex" type="button" disabled>Remove Vertex</button>
+                        <button class="button secondary compact-button" id="save-features" type="button" disabled>Save</button>
                         <button class="button ghost compact-button" id="remove-feature" type="button" disabled>Remove Feature</button>
                     </div>
                 </div>
