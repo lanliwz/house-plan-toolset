@@ -7,6 +7,7 @@ from house_landscape_planner.analysis.parcel import analyze_parcel
 from house_landscape_planner.io.image_loader import load_image_summary
 from house_landscape_planner.models import (
     ConceptZone,
+    ElevationSummary,
     HouseSummary,
     ImageSummary,
     ParcelSummary,
@@ -155,11 +156,13 @@ def create_site_assessment(parcel_path: str | Path, image_path: str | Path | Non
         house=None,
         rooms=[],
         utility_connections=[],
+        elevation_summary=None,
         assumptions=build_assumptions(parcel, image),
         concept_zones=concept_zones,
         landscape_features=build_landscape_features(parcel, concept_zones),
         recommendations=build_recommendations(parcel, image),
         next_data_to_collect=build_next_data_list(),
+        contour_lines=[],
         house_plan_points=[],
     )
 
@@ -205,6 +208,15 @@ def render_markdown_report(assessment: SiteAssessment) -> str:
             "## Parcel Properties",
         ]
     )
+
+    if assessment.elevation_summary is not None:
+        elevation = assessment.elevation_summary
+        lines.extend(
+            [
+                f"- Elevation range: `{elevation.min_elevation_feet:.1f}` to `{elevation.max_elevation_feet:.1f}` feet",
+                f"- Relief: `{elevation.relief_feet:.1f}` feet",
+            ]
+        )
 
     if parcel.properties:
         acreage = parcel.properties.get("ACREAGE")

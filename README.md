@@ -12,6 +12,7 @@ The project currently focuses on:
 - Neo4j-backed parcel browsing and review
 - editable house-footprint modeling inside the parcel
 - starter room and utility-connection modeling derived from the house footprint
+- Suffolk contour-based parcel elevation summaries
 - ontology-backed landscape feature planning for hillside and irregular lots
 - a browser-based three-panel property navigator for parcel, house, room, utility, edge, vertex, and design-feature objects
 
@@ -62,12 +63,14 @@ Loader documentation:
 1. Sync the project environment with `uv`.
 2. Load a parcel into Neo4j.
 3. Optionally attach a house footprint to the parcel.
-4. Start the web UI.
+4. Optionally load parcel elevation from Suffolk County contours.
+5. Start the web UI.
 
 ```bash
 uv sync
-uv run house-landscape load-neo4j   --parcel data/input/parcel_62n.geojson   --database hp62n
-uv run house-landscape load-house-footprint   --parcel-id 0200154000400039003   --house data/input/house_footprint.geojson   --database hp62n
+uv run house-landscape load-neo4j --parcel data/input/parcel_62n.geojson --database hp62n
+uv run house-landscape load-house-footprint --parcel-id 0200154000400039003 --house data/input/house_footprint.geojson --database hp62n
+uv run house-landscape load-elevation --parcel-id 0200154000400039003 --database hp62n
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
@@ -80,6 +83,7 @@ uv sync
 uv run python -m pytest
 uv run house-landscape load-neo4j --parcel data/input/parcel_62n.geojson --database hp62n
 uv run house-landscape load-house-footprint --parcel-id 0200154000400039003 --house data/input/house_footprint.geojson --database hp62n
+uv run house-landscape load-elevation --parcel-id 0200154000400039003 --database hp62n
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
@@ -102,6 +106,7 @@ uv run house-landscape serve --host 127.0.0.1 --port 8181
 The generated report currently includes:
 
 - parcel area, perimeter, bounding box, centroid, and irregularity score
+- stored Suffolk contour-based elevation range and estimated relief when loaded
 - ontology-backed landscape features mapped to concept zones such as arrival gardens, circulation paths, terraces, bioswales, and privacy planting
 - a starter house-program section when a house footprint is available
 - a simple steep-site planning checklist tailored to hillside residential landscaping
@@ -124,6 +129,7 @@ House ontology artifacts:
 - The Neo4j-first workflow expects parcel data loaded into `hp62n`.
 - Saved house footprints are persisted both as legacy parcel JSON properties and as graph-native `House` and `BuildingFootprint` nodes.
 - Each persisted house footprint generates starter `Room` and `UtilityConnection` nodes linked to the house.
+- `load-elevation` and `POST /api/neo4j/parcels/{parcel_id}/elevation` fetch intersecting Suffolk 5-foot and 10-foot contours, then store the parcel elevation summary on the parcel node.
 - Saved landscape features are mirrored into graph-native `LandscapePlan` and `LandscapeFeature` nodes.
 - `load-house-footprint` and `POST /api/neo4j/parcels/{parcel_id}/house-footprint` both attach a house footprint to an existing parcel.
 

@@ -108,6 +108,26 @@ class UtilityConnectionSummary:
 
 
 @dataclass(slots=True)
+class ElevationSummary:
+    source: str
+    min_elevation_feet: float
+    max_elevation_feet: float
+    relief_feet: float
+    contour_5ft_values: list[float]
+    contour_10ft_values: list[float]
+
+
+@dataclass(slots=True)
+class ContourLineSummary:
+    contour_id: str
+    label: str
+    elevation_feet: float
+    interval_feet: int
+    source_layer: str
+    paths: list[list[tuple[float, float]]]
+
+
+@dataclass(slots=True)
 class MaintenanceTask:
     task_id: str
     label: str
@@ -123,9 +143,11 @@ class SiteAssessment:
     house: HouseSummary | None
     rooms: list[RoomSummary]
     utility_connections: list[UtilityConnectionSummary]
+    elevation_summary: ElevationSummary | None
     assumptions: list[str]
     concept_zones: list[ConceptZone]
     landscape_features: list[LandscapeFeature]
     recommendations: list[str]
     next_data_to_collect: list[str]
+    contour_lines: list[ContourLineSummary] = field(default_factory=list)
     house_plan_points: list[tuple[float, float]] = field(default_factory=list)

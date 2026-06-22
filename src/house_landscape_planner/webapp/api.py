@@ -17,6 +17,7 @@ from house_landscape_planner.analysis.site_report import (
 )
 from house_landscape_planner.models import (
     ConceptZone,
+    ContourLineSummary,
     LandscapeFeature,
     RoomSummary,
     SiteAssessment,
@@ -45,6 +46,15 @@ class ImageSummaryResponse(BaseModel):
     height_px: int
     mode: str
     format: str | None
+
+
+class ElevationSummaryResponse(BaseModel):
+    source: str
+    min_elevation_feet: float
+    max_elevation_feet: float
+    relief_feet: float
+    contour_5ft_values: list[float]
+    contour_10ft_values: list[float]
 
 
 class ConceptZoneResponse(BaseModel):
@@ -136,6 +146,15 @@ class FeatureObjectResponse(BaseModel):
     properties: dict[str, object]
 
 
+class ContourObjectResponse(BaseModel):
+    id: str
+    kind: str = "contour"
+    label: str
+    subtitle: str
+    description: str
+    properties: dict[str, object]
+
+
 class RoomObjectResponse(BaseModel):
     id: str
     kind: str = "room"
@@ -156,6 +175,7 @@ class UtilityObjectResponse(BaseModel):
 
 class SiteObjectsResponse(BaseModel):
     parcel: ParcelObjectResponse
+    contours: list[ContourObjectResponse]
     edges: list[EdgeObjectResponse]
     vertices: list[VertexObjectResponse]
     features: list[FeatureObjectResponse]
@@ -169,6 +189,7 @@ class SiteAssessmentResponse(BaseModel):
     parcel_properties: dict[str, object]
     metrics: ParcelMetricsResponse
     image: ImageSummaryResponse | None
+    elevation_summary: ElevationSummaryResponse | None
     assumptions: list[str]
     concept_zones: list[ConceptZoneResponse]
     landscape_features: list[LandscapeFeatureResponse]
@@ -240,6 +261,18 @@ def serialize_assessment(
             if image is not None
             else None
         ),
+        elevation_summary=(
+            ElevationSummaryResponse(
+                source=assessment.elevation_summary.source,
+                min_elevation_feet=assessment.elevation_summary.min_elevation_feet,
+                max_elevation_feet=assessment.elevation_summary.max_elevation_feet,
+                relief_feet=assessment.elevation_summary.relief_feet,
+                contour_5ft_values=list(assessment.elevation_summary.contour_5ft_values),
+                contour_10ft_values=list(assessment.elevation_summary.contour_10ft_values),
+            )
+            if assessment.elevation_summary is not None
+            else None
+        ),
         assumptions=list(assessment.assumptions),
         concept_zones=[serialize_zone(zone) for zone in assessment.concept_zones],
         landscape_features=[serialize_landscape_feature(feature) for feature in assessment.landscape_features],
@@ -294,6 +327,7 @@ def serialize_site_objects(
     boundary_points = assessment.parcel.boundary_points
     open_points = boundary_points[:-1] if len(boundary_points) > 1 else list(boundary_points)
     parcel_model = build_onto2ai_parcel_model(assessment, parcel_name=parcel_name)
+    contours = build_contour_objects(assessment.contour_lines)
     edges = build_edge_objects(open_points, assessment)
     vertices = build_vertex_objects(open_points, assessment, parcel_model)
     features = build_feature_objects(assessment)
@@ -320,21 +354,54 @@ def serialize_site_objects(
             "irregularity_index": round(metrics.irregularity_index, 3),
             "coordinate_system": metrics.coordinate_system,
             "edge_count": len(edges),
+            "contour_count": len(contours),
             "vertex_count": len(vertices),
             "feature_count": len(features),
             "room_count": len(rooms),
             "utility_count": len(utilities),
+            "min_elevation_feet": assessment.elevation_summary.min_elevation_feet if assessment.elevation_summary else None,
+            "max_elevation_feet": assessment.elevation_summary.max_elevation_feet if assessment.elevation_summary else None,
+            "relief_feet": assessment.elevation_summary.relief_feet if assessment.elevation_summary else None,
             **assessment.parcel.properties,
         },
     )
     return SiteObjectsResponse(
         parcel=parcel,
+        contours=contours,
         edges=edges,
         vertices=vertices,
         features=features,
         rooms=rooms,
         utilities=utilities,
     )
+
+
+def build_contour_objects(contour_lines: list[ContourLineSummary]) -> list[ContourObjectResponse]:
+    contour_objects: list[ContourObjectResponse] = []
+    for contour in contour_lines:
+        point_count = sum(len(path) for path in contour.paths)
+        contour_objects.append(
+            ContourObjectResponse(
+                id=contour.contour_id,
+                label=contour.label,
+                subtitle=f"{int(contour.elevation_feet)} ft | {contour.interval_feet}-foot interval",
+                description="Topographic contour line intersecting the parcel from the Suffolk County GIS layer.",
+                properties={
+                    "contour_id": contour.contour_id,
+                    "elevation_feet": contour.elevation_feet,
+                    "elevation_unit": "feet",
+                    "interval_feet": contour.interval_feet,
+                    "source_layer": contour.source_layer,
+                    "path_count": len(contour.paths),
+                    "point_count": point_count,
+                    "paths": [
+                        [[float(x), float(y)] for x, y in path]
+                        for path in contour.paths
+                    ],
+                },
+            )
+        )
+    return contour_objects
 
 
 def build_edge_objects(

@@ -11,7 +11,9 @@ from house_landscape_planner.analysis.site_report import (
 )
 from house_landscape_planner.loaders.neo4j_parcel_loader import (
     load_geojson_into_neo4j,
+    load_house_footprint_from_suffolk_gis_into_neo4j,
     load_house_footprint_into_neo4j,
+    load_parcel_elevation_into_neo4j,
 )
 from house_landscape_planner.webapp.main import run_server
 
@@ -74,6 +76,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not apply local house constraints before loading the footprint.",
     )
+
+    load_house_gis = subparsers.add_parser(
+        "load-house-footprint-gis",
+        help="Fetch the primary house footprint from Suffolk GIS and attach it to an existing parcel in Neo4j.",
+    )
+    load_house_gis.add_argument("--parcel-id", required=True, help="Existing parcel id in Neo4j.")
+    load_house_gis.add_argument("--database", default="hp62n", help="Target Neo4j database name.")
+    load_house_gis.add_argument(
+        "--skip-constraints",
+        action="store_true",
+        help="Do not apply local house constraints before loading the footprint.",
+    )
+
+    load_elevation = subparsers.add_parser(
+        "load-elevation",
+        help="Fetch Suffolk contour elevations for an existing parcel and store the summary in Neo4j.",
+    )
+    load_elevation.add_argument("--parcel-id", required=True, help="Existing parcel id in Neo4j.")
+    load_elevation.add_argument("--database", default="hp62n", help="Target Neo4j database name.")
     return parser
 
 
@@ -115,6 +136,23 @@ def main() -> int:
             house_geojson_path=args.house,
             database=args.database,
             apply_constraints=not args.skip_constraints,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "load-house-footprint-gis":
+        result = load_house_footprint_from_suffolk_gis_into_neo4j(
+            parcel_id=args.parcel_id,
+            database=args.database,
+            apply_constraints=not args.skip_constraints,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "load-elevation":
+        result = load_parcel_elevation_into_neo4j(
+            parcel_id=args.parcel_id,
+            database=args.database,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

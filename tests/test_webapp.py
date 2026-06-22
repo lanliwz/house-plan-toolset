@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from house_landscape_planner.analysis.site_report import create_site_assessment
+from house_landscape_planner.loaders import neo4j_parcel_loader
 from house_landscape_planner.webapp.main import app
 
 
@@ -42,6 +43,7 @@ def test_sample_analysis_endpoint_returns_report_payload() -> None:
     assert payload["objects"]["parcel"]["properties"]["full_address_text"] == "123 Hillside Lane"
     assert payload["landscape_features"][0]["ontology_class"].startswith("http://www.onto2ai-toolset.com/ontology/landscape/Landscape#")
     assert len(payload["objects"]["features"]) == len(payload["landscape_features"])
+    assert payload["objects"]["contours"] == []
     assert len(payload["objects"]["edges"]) == payload["metrics"]["vertex_count"]
     assert len(payload["objects"]["vertices"]) == payload["metrics"]["vertex_count"]
     assert payload["objects"]["rooms"] == []
@@ -176,6 +178,76 @@ def test_upload_neo4j_house_footprint_endpoint_returns_updated_assessment(monkey
     assert response.json()["parcel_name"] == "p-1"
     assert len(response.json()["house_plan_points"]) == 4
     assert response.json()["persistence_mode"] == "neo4j"
+
+
+def test_load_neo4j_house_footprint_from_gis_endpoint_returns_updated_assessment(monkeypatch) -> None:
+    loaded: dict[str, object] = {}
+
+    def fake_load_house_gis(*, parcel_id, database="hp62n", apply_constraints=True):
+        loaded["parcel_id"] = parcel_id
+        loaded["database"] = database
+        loaded["apply_constraints"] = apply_constraints
+        return {"parcel_id": parcel_id, "database": database, "source_layer": "suffolk_building_footprints"}
+
+    def fake_neo4j_assessment(parcel_id, database="hp62n"):
+        assessment = create_site_assessment("tests/data/sample_parcel.geojson")
+        assessment.parcel.source_path = Path(f"/neo4j/{database}/{parcel_id}.geojson")
+        assessment.house_plan_points = [(0.0, 0.0), (12.0, 0.0), (12.0, 9.0), (0.0, 9.0)]
+        assessment.rooms = []
+        assessment.utility_connections = []
+        return assessment
+
+    monkeypatch.setattr("house_landscape_planner.webapp.main.load_house_footprint_from_suffolk_gis_into_neo4j", fake_load_house_gis)
+    monkeypatch.setattr("house_landscape_planner.webapp.main.create_site_assessment_from_neo4j", fake_neo4j_assessment)
+
+    response = client.post("/api/neo4j/parcels/p-1/house-footprint/gis", params={"database": "hp62n"})
+
+    assert response.status_code == 200
+    assert loaded == {"parcel_id": "p-1", "database": "hp62n", "apply_constraints": True}
+    assert response.json()["parcel_name"] == "p-1"
+    assert len(response.json()["house_plan_points"]) == 4
+
+
+def test_refresh_neo4j_parcel_elevation_endpoint_returns_updated_assessment(monkeypatch) -> None:
+    refreshed: dict[str, object] = {}
+
+    def fake_load_elevation(*, parcel_id, database="hp62n"):
+        refreshed["parcel_id"] = parcel_id
+        refreshed["database"] = database
+        return {"parcel_id": parcel_id, "database": database, "relief_feet": 45.0}
+
+    def fake_neo4j_assessment(parcel_id, database="hp62n"):
+        assessment = create_site_assessment("tests/data/sample_parcel.geojson")
+        assessment.parcel.source_path = Path(f"/neo4j/{database}/{parcel_id}.geojson")
+        assessment.elevation_summary = neo4j_parcel_loader.ElevationSummary(
+            source="suffolk_county_gisviewer_contours",
+            min_elevation_feet=35.0,
+            max_elevation_feet=80.0,
+            relief_feet=45.0,
+            contour_5ft_values=[35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 80.0],
+            contour_10ft_values=[40.0, 50.0, 60.0, 70.0, 80.0],
+        )
+        assessment.contour_lines = [
+            neo4j_parcel_loader.ContourLineSummary(
+                contour_id="contour-5-100",
+                label="Contour 35 ft",
+                elevation_feet=35.0,
+                interval_feet=5,
+                source_layer="suffolk_contours_5ft",
+                paths=[[(-73.1, 40.9), (-73.2, 40.85)]],
+            )
+        ]
+        return assessment
+
+    monkeypatch.setattr("house_landscape_planner.webapp.main.load_parcel_elevation_into_neo4j", fake_load_elevation)
+    monkeypatch.setattr("house_landscape_planner.webapp.main.create_site_assessment_from_neo4j", fake_neo4j_assessment)
+
+    response = client.post("/api/neo4j/parcels/p-1/elevation", params={"database": "hp62n"})
+
+    assert response.status_code == 200
+    assert refreshed == {"parcel_id": "p-1", "database": "hp62n"}
+    assert response.json()["elevation_summary"]["relief_feet"] == 45.0
+    assert response.json()["objects"]["contours"][0]["properties"]["elevation_feet"] == 35.0
 
 
 def test_remove_neo4j_feature_endpoint_returns_updated_assessment(monkeypatch) -> None:

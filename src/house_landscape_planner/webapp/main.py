@@ -14,7 +14,9 @@ from house_landscape_planner.analysis.site_report import create_site_assessment
 from house_landscape_planner.loaders.neo4j_parcel_loader import (
     DEFAULT_WEB_DATABASE,
     create_site_assessment_from_neo4j,
+    load_house_footprint_from_suffolk_gis_into_neo4j,
     load_house_footprint_into_neo4j,
+    load_parcel_elevation_into_neo4j,
     list_parcels_from_neo4j,
     remove_feature_from_neo4j,
     save_feature_layout_to_neo4j,
@@ -155,6 +157,36 @@ async def upload_neo4j_house_footprint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"Failed to load house footprint into Neo4j: {exc}") from exc
+
+
+@app.post("/api/neo4j/parcels/{parcel_id}/house-footprint/gis", response_model=SiteAssessmentResponse)
+async def load_neo4j_house_footprint_from_gis(
+    parcel_id: str,
+    database: str = DEFAULT_WEB_DATABASE,
+) -> SiteAssessmentResponse:
+    try:
+        load_house_footprint_from_suffolk_gis_into_neo4j(parcel_id=parcel_id, database=database)
+        assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
+        return serialize_assessment(assessment, parcel_name=parcel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to load house footprint from Suffolk GIS: {exc}") from exc
+
+
+@app.post("/api/neo4j/parcels/{parcel_id}/elevation", response_model=SiteAssessmentResponse)
+async def refresh_neo4j_parcel_elevation(
+    parcel_id: str,
+    database: str = DEFAULT_WEB_DATABASE,
+) -> SiteAssessmentResponse:
+    try:
+        load_parcel_elevation_into_neo4j(parcel_id=parcel_id, database=database)
+        assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
+        return serialize_assessment(assessment, parcel_name=parcel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to refresh parcel elevation from Suffolk contours: {exc}") from exc
 
 
 @app.post("/api/analyze", response_model=SiteAssessmentResponse)

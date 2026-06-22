@@ -159,6 +159,7 @@ function setupForm() {
 function setupActions() {
     document.getElementById("download-report").addEventListener("click", downloadReport);
     document.getElementById("load-neo4j").addEventListener("click", loadSelectedNeo4jParcel);
+    document.getElementById("load-house-gis").addEventListener("click", loadHouseFootprintFromGis);
     document.getElementById("add-house-plan").addEventListener("click", addHousePlan);
     document.getElementById("remove-house-plan").addEventListener("click", removeHousePlan);
     document.getElementById("add-house-vertex").addEventListener("click", addHousePlanVertex);
@@ -517,6 +518,7 @@ function buildDefaultHousePlanPoints(parcelPoints) {
 function renderCatalog() {
     const {
         parcel,
+        contours,
         edges,
         vertices,
         features,
@@ -527,6 +529,7 @@ function renderCatalog() {
     } = state.assessment.objects;
     const patioFeatures = getPatioFeatures();
     document.getElementById("parcel-count").textContent = "1";
+    document.getElementById("contour-count").textContent = String(contours.length);
     document.getElementById("edge-count").textContent = String(edges.length);
     document.getElementById("vertex-count").textContent = String(vertices.length);
     document.getElementById("house-plan-count").textContent = housePlan ? "1" : "0";
@@ -537,6 +540,9 @@ function renderCatalog() {
     document.getElementById("patio-count").textContent = String(patioFeatures.length);
 
     document.getElementById("parcel-list").innerHTML = renderCatalogItem(parcel);
+    document.getElementById("contour-list").innerHTML = contours.length
+        ? contours.map(renderCatalogItem).join("")
+        : '<div class="placeholder">Load parcel elevation to view contour objects.</div>';
     document.getElementById("edge-list").innerHTML = edges.map(renderCatalogItem).join("");
     document.getElementById("vertex-list").innerHTML = vertices.map(renderCatalogItem).join("");
     document.getElementById("house-plan-list").innerHTML = housePlan
@@ -646,6 +652,7 @@ function buildParcelSvg(data) {
 
     const { width, height, vertexPoints, polygonPoints, project } = buildDiagramGeometry(points);
     const selectedParcel = state.selectedKind === "parcel" ? "selected" : "";
+    const contourLines = data.objects.contours.map((contour) => buildContourSvg(contour, project)).join("");
     const housePlanSvg = buildHousePlanSvg(data, project);
 
     const edgeLines = data.objects.edges.map((edge, index) => {
@@ -674,10 +681,26 @@ function buildParcelSvg(data) {
 
     return buildSvgFrame(width, height, `
         <polygon class="parcel-fill ${selectedParcel}" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
+        ${contourLines}
         ${housePlanSvg}
         ${edgeLines}
         ${vertexDots}
     `);
+}
+
+function buildContourSvg(contour, project) {
+    const pathMarkup = (contour.properties.paths || []).map((pathPoints, pathIndex) => {
+        const projected = pathPoints.map((point) => project([Number(point[0]), Number(point[1])]));
+        if (projected.length < 2) {
+            return "";
+        }
+        const d = projected.map((point, index) => (
+            `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+        )).join(" ");
+        const selected = state.selectedKind === "contour" && state.selectedId === contour.id ? "selected" : "";
+        return `<path class="contour-line ${selected}" data-kind="contour" data-id="${escapeHtml(contour.id)}" data-path-index="${pathIndex}" d="${d}"></path>`;
+    }).join("");
+    return pathMarkup;
 }
 
 function buildGardenSvg(data) {
@@ -1311,6 +1334,9 @@ function buildDetailTags(item) {
     } else if (item.kind === "edge") {
         tags.push(`<span class="detail-chip">${escapeHtml(formatNumber(item.properties.length))} ${escapeHtml(item.properties.linear_unit)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.direction)}</span>`);
+    } else if (item.kind === "contour") {
+        tags.push(`<span class="detail-chip">${escapeHtml(formatNumber(item.properties.elevation_feet))} ft</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(String(item.properties.interval_feet))}-ft interval</span>`);
     } else if (item.kind === "vertex") {
         tags.push(`<span class="detail-chip">Angle ${escapeHtml(String(item.properties.interior_angle_degrees))}°</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.linear_unit)}</span>`);
@@ -1323,12 +1349,30 @@ function buildDetailTags(item) {
 
 function buildSelectionSummary(item) {
     if (item.kind === "parcel") {
+        const elevationRows = state.assessment.elevation_summary ? `
+                <li>Elevation range: ${escapeHtml(formatNumber(state.assessment.elevation_summary.min_elevation_feet))} to ${escapeHtml(formatNumber(state.assessment.elevation_summary.max_elevation_feet))} ft</li>
+                <li>Estimated relief: ${escapeHtml(formatNumber(state.assessment.elevation_summary.relief_feet))} ft</li>
+        ` : "";
         return `
             <p>${escapeHtml(item.description)}</p>
             <ul class="selection-list">
                 <li>Edges: ${escapeHtml(String(state.assessment.objects.edges.length))}</li>
+                <li>Contours: ${escapeHtml(String(state.assessment.objects.contours.length))}</li>
                 <li>Vertices: ${escapeHtml(String(state.assessment.objects.vertices.length))}</li>
                 <li>Image input: ${escapeHtml(state.assessment.image ? state.assessment.image.source_name : "Not provided")}</li>
+                ${elevationRows}
+            </ul>
+        `;
+    }
+
+    if (item.kind === "contour") {
+        return `
+            <p>${escapeHtml(item.description)}</p>
+            <ul class="selection-list">
+                <li>Elevation: ${escapeHtml(formatNumber(item.properties.elevation_feet))} ft</li>
+                <li>Interval: ${escapeHtml(String(item.properties.interval_feet))} ft</li>
+                <li>Segments: ${escapeHtml(String(item.properties.path_count))}</li>
+                <li>Points: ${escapeHtml(String(item.properties.point_count))}</li>
             </ul>
         `;
     }
@@ -1457,11 +1501,15 @@ function computePatioMetrics(properties) {
 function renderMetricSnapshot() {
     const data = state.assessment;
     const imageLabel = data.image ? `${data.image.width_px} x ${data.image.height_px}` : "No image";
+    const elevationLabel = data.elevation_summary
+        ? `${formatNumber(data.elevation_summary.min_elevation_feet)}-${formatNumber(data.elevation_summary.max_elevation_feet)} ft`
+        : "Not loaded";
     const cards = [
         metricCard("Area", formatAreaValue(data.metrics.area, data.metrics.area_unit)),
         metricCard("Perimeter", `${formatNumber(data.metrics.perimeter)} ${data.metrics.linear_unit}`),
         metricCard("Irregularity", data.metrics.irregularity_index.toFixed(3)),
         metricCard("Vertices", String(data.metrics.vertex_count)),
+        metricCard("Elevation", elevationLabel),
         metricCard("Garden Features", String(data.landscape_features.length)),
         metricCard("Bounds", `${formatNumber(data.metrics.width)} x ${formatNumber(data.metrics.height)}`),
         metricCard("Image", imageLabel),
@@ -1515,6 +1563,9 @@ function getSelectedObject() {
     if (state.selectedKind === "utility") {
         return state.assessment.objects.utilities.find((item) => item.id === state.selectedId) || null;
     }
+    if (state.selectedKind === "contour") {
+        return state.assessment.objects.contours.find((item) => item.id === state.selectedId) || null;
+    }
     if (state.selectedKind === "edge") {
         return state.assessment.objects.edges.find((item) => item.id === state.selectedId) || null;
     }
@@ -1528,6 +1579,7 @@ function getSelectedObject() {
 }
 
 function updateFeatureActions() {
+    const loadHouseGisButton = document.getElementById("load-house-gis");
     const addHousePlanButton = document.getElementById("add-house-plan");
     const removeHousePlanButton = document.getElementById("remove-house-plan");
     const addHouseVertexButton = document.getElementById("add-house-vertex");
@@ -1540,6 +1592,7 @@ function updateFeatureActions() {
     const isFeatureSelected = hasAssessment && state.selectedKind === "feature" && Boolean(getSelectedObject());
 
     const isNeo4jBacked = state.persistenceMode === "neo4j" && Boolean(state.currentNeo4jParcelId);
+    loadHouseGisButton.disabled = !isNeo4jBacked;
     addHousePlanButton.disabled = !hasAssessment || hasHousePlan;
     removeHousePlanButton.disabled = !hasHousePlan;
     addHouseVertexButton.disabled = !hasHousePlan;
@@ -1576,6 +1629,7 @@ function updateStatus(message, isError) {
 
 function resetResults() {
     document.getElementById("parcel-count").textContent = "0";
+    document.getElementById("contour-count").textContent = "0";
     document.getElementById("edge-count").textContent = "0";
     document.getElementById("vertex-count").textContent = "0";
     document.getElementById("house-plan-count").textContent = "0";
@@ -1607,6 +1661,7 @@ function resetResults() {
     document.getElementById("properties-title").textContent = "Inspector";
     document.getElementById("properties-list").innerHTML = '<div class="placeholder-line">Select an object to inspect its values.</div>';
     document.getElementById("metrics-grid").innerHTML = '<div class="placeholder">Parcel metrics will appear here after analysis.</div>';
+    document.getElementById("contour-list").innerHTML = '<div class="placeholder">Loaded elevation contours will appear here.</div>';
     renderActiveView();
     updateFeatureActions();
     updateZoomControls();
@@ -1712,6 +1767,29 @@ async function removeSelectedFeature() {
         }
         applyAssessment(payload);
         updateStatus(`Removed feature ${featureId} from Neo4j.`, false);
+    } catch (error) {
+        updateStatus(error.message, true);
+    }
+}
+
+async function loadHouseFootprintFromGis() {
+    if (!state.assessment || state.persistenceMode !== "neo4j" || !state.currentNeo4jParcelId) {
+        updateStatus("GIS house loading is only available for parcels loaded from Neo4j.", true);
+        return;
+    }
+
+    try {
+        updateStatus(`Loading Suffolk GIS house footprint for ${state.currentNeo4jParcelId}...`, false);
+        const response = await fetch(
+            `/api/neo4j/parcels/${encodeURIComponent(state.currentNeo4jParcelId)}/house-footprint/gis?database=${encodeURIComponent(state.currentNeo4jDatabase || "hp62n")}`,
+            { method: "POST" },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.detail || "Unable to load house footprint from Suffolk GIS.");
+        }
+        applyAssessment(payload);
+        updateStatus(`Loaded Suffolk GIS house footprint for ${payload.parcel_name}.`, false);
     } catch (error) {
         updateStatus(error.message, true);
     }

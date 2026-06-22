@@ -128,8 +128,24 @@ def points_look_like_lon_lat(points: list[tuple[float, float]]) -> bool:
     return _looks_like_lon_lat(points)
 
 
+def project_lon_lat_to_feet_with_reference(
+    points: list[tuple[float, float]],
+    *,
+    reference_point: tuple[float, float],
+) -> list[tuple[float, float]]:
+    return _project_lon_lat_to_feet_impl(points, reference_point=reference_point)
+
+
 def _project_lon_lat_to_feet(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
-    ref_lon, ref_lat = points[0]
+    return _project_lon_lat_to_feet_impl(points, reference_point=points[0])
+
+
+def _project_lon_lat_to_feet_impl(
+    points: list[tuple[float, float]],
+    *,
+    reference_point: tuple[float, float],
+) -> list[tuple[float, float]]:
+    ref_lon, ref_lat = reference_point
     lat_radians = math.radians(ref_lat)
 
     meters_per_degree_lat = (

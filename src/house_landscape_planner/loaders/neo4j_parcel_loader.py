@@ -4,6 +4,8 @@ import json
 import os
 import re
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
@@ -25,7 +27,12 @@ from house_landscape_planner.onto2ai_compat import (
 )
 
 from house_landscape_planner.analysis.landscape_features import build_landscape_features
-from house_landscape_planner.analysis.parcel import compute_metrics, normalize_points
+from house_landscape_planner.analysis.parcel import (
+    compute_metrics,
+    normalize_points,
+    points_look_like_lon_lat,
+    project_lon_lat_to_feet_with_reference,
+)
 from house_landscape_planner.analysis.site_report import (
     build_assumptions,
     build_concept_zones,
@@ -34,6 +41,8 @@ from house_landscape_planner.analysis.site_report import (
 )
 from house_landscape_planner.io.geojson_loader import load_geojson
 from house_landscape_planner.models import (
+    ContourLineSummary,
+    ElevationSummary,
     HouseSummary,
     LandscapeFeature,
     ParcelSummary,
@@ -53,8 +62,14 @@ LANDSCAPE_NS = "http://www.onto2ai-toolset.com/ontology/landscape/Landscape#"
 DEFAULT_WEB_DATABASE = os.getenv("NEO4J_HP62N_DB_NAME", "hp62n")
 FEATURE_LAYOUT_PROPERTY = "housePlanFeatureLayoutJson"
 HOUSE_PLAN_POINTS_PROPERTY = "housePlanPolygonJson"
+ELEVATION_SUMMARY_PROPERTY = "housePlanElevationSummaryJson"
+ELEVATION_CONTOURS_PROPERTY = "housePlanElevationContoursJson"
 HOUSE_CONSTRAINT_PATH = Path(__file__).resolve().parents[3] / "resource" / "ontology" / "www_onto2ai-toolset_com" / "ontology" / "house" / "House.cypher"
 LANDSCAPE_CONSTRAINT_PATH = Path(__file__).resolve().parents[3] / "resource" / "ontology" / "www_onto2ai-toolset_com" / "ontology" / "landscape" / "Landscape.cypher"
+SUFFOLK_GIS_BASE = "https://gis.suffolkcountyny.gov/server/rest/services/Applications/GISViewer/MapServer"
+SUFFOLK_CONTOUR_5FT_LAYER = 15
+SUFFOLK_CONTOUR_10FT_LAYER = 16
+SUFFOLK_BUILDING_FOOTPRINT_LAYER = 30
 
 
 @dataclass(frozen=True)
@@ -78,6 +93,15 @@ class Neo4jParcelListItem:
     label: str
     vertex_count: int
     uri: str
+
+
+@dataclass(frozen=True)
+class SuffolkBuildingFootprintCandidate:
+    object_id: int | str
+    status: str | None
+    area_square_feet: float | None
+    perimeter_feet: float | None
+    ring_points: list[tuple[float, float]]
 
 
 def load_geojson_into_neo4j(
@@ -139,28 +163,111 @@ def load_house_footprint_into_neo4j(
         raise ValueError("House footprint must contain at least four coordinates.")
 
     points = [(float(point[0]), float(point[1])) for point in ring[:-1]]
+    result = save_house_footprint_points_to_neo4j(
+        parcel_id=parcel_id,
+        points=points,
+        database=database,
+        apply_constraints=apply_constraints,
+    )
+    result["geometry_type"] = geometry_type
+    return result
+
+
+def load_house_footprint_from_suffolk_gis_into_neo4j(
+    *,
+    parcel_id: str,
+    database: str = DEFAULT_WEB_DATABASE,
+    apply_constraints: bool = True,
+) -> dict[str, int | float | str]:
+    config = get_neo4j_config(database=database)
     driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
     try:
-        if apply_constraints:
-            apply_dataset_constraints(driver, config.database, HOUSE_CONSTRAINT_PATH)
         with driver.session(database=config.database) as session:
-            parcel_exists = session.run(
+            row = session.run(
                 """
-                MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})
-                RETURN parcel.parcelId AS parcel_id
+                MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})-[:hasParcelGeometry]->(:PolygonGeometry:Geometry:Resource)-[:hasBoundaryVertex]->(vertex:BoundaryVertex:GPSCoordinate:Resource)
+                RETURN collect(properties(vertex)) AS vertices
                 """,
                 parcel_id=parcel_id,
             ).single()
-            if parcel_exists is None:
+            if row is None:
                 raise ValueError(f"Parcel {parcel_id!r} not found in database {database!r}.")
-            sync_house_graph(session, parcel_id=parcel_id, house_plan_points=points)
+            vertex_props = sorted(
+                [dict(item) for item in (row["vertices"] or []) if item],
+                key=lambda item: item.get("vertexSequenceNumber", 0),
+            )
+            if not vertex_props:
+                raise ValueError(f"Parcel {parcel_id!r} has no boundary vertices in database {database!r}.")
+            source_points = [(float(item["longitude"]), float(item["latitude"])) for item in vertex_props]
+    finally:
+        driver.close()
+
+    closed_points = source_points + [source_points[0]]
+    candidates = query_suffolk_building_footprints(closed_points)
+    candidate = choose_primary_building_footprint(candidates)
+    if candidate is None:
+        raise ValueError("No Suffolk building footprint intersected the parcel footprint.")
+
+    local_points = candidate.ring_points
+    if points_look_like_lon_lat(candidate.ring_points):
+        local_points = project_lon_lat_to_feet_with_reference(
+            candidate.ring_points,
+            reference_point=source_points[0],
+        )
+
+    result = save_house_footprint_points_to_neo4j(
+        parcel_id=parcel_id,
+        points=local_points,
+        database=database,
+        apply_constraints=apply_constraints,
+    )
+    result.update(
+        {
+            "source_layer": "suffolk_building_footprints",
+            "source_object_id": str(candidate.object_id),
+            "candidate_count": len(candidates),
+            "geometry_type": "Polygon",
+        }
+    )
+    return result
+
+
+def load_parcel_elevation_into_neo4j(
+    *,
+    parcel_id: str,
+    database: str = DEFAULT_WEB_DATABASE,
+) -> dict[str, int | float | str]:
+    config = get_neo4j_config(database=database)
+    driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+    try:
+        with driver.session(database=config.database) as session:
+            row = session.run(
+                """
+                MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})-[:hasParcelGeometry]->(:PolygonGeometry:Geometry:Resource)-[:hasBoundaryVertex]->(vertex:BoundaryVertex:GPSCoordinate:Resource)
+                RETURN collect(properties(vertex)) AS vertices
+                """,
+                parcel_id=parcel_id,
+            ).single()
+            if row is None:
+                raise ValueError(f"Parcel {parcel_id!r} not found in database {database!r}.")
+            vertex_props = sorted(
+                [dict(item) for item in (row["vertices"] or []) if item],
+                key=lambda item: item.get("vertexSequenceNumber", 0),
+            )
+            if not vertex_props:
+                raise ValueError(f"Parcel {parcel_id!r} has no boundary vertices in database {database!r}.")
+            closed_points = [(float(item["longitude"]), float(item["latitude"])) for item in vertex_props]
+            closed_points.append(closed_points[0])
+            summary, contour_lines = fetch_suffolk_elevation_dataset(closed_points)
             session.run(
                 f"""
                 MATCH (parcel:Parcel:Resource {{parcelId: $parcel_id}})
-                SET parcel.{HOUSE_PLAN_POINTS_PROPERTY} = $house_plan_payload
+                SET parcel.{ELEVATION_SUMMARY_PROPERTY} = $summary_json
+                SET parcel.{ELEVATION_CONTOURS_PROPERTY} = $contours_json
                 """,
                 parcel_id=parcel_id,
-                house_plan_payload=json.dumps([[float(point[0]), float(point[1])] for point in points]),
+                summary_json=json.dumps(serialize_elevation_summary(summary)),
+                contours_json=json.dumps([serialize_contour_line(item) for item in contour_lines]),
             ).consume()
     finally:
         driver.close()
@@ -168,8 +275,12 @@ def load_house_footprint_into_neo4j(
     return {
         "database": database,
         "parcel_id": parcel_id,
-        "house_vertex_count": len(points),
-        "geometry_type": geometry_type,
+        "min_elevation_feet": summary.min_elevation_feet,
+        "max_elevation_feet": summary.max_elevation_feet,
+        "relief_feet": summary.relief_feet,
+        "contour_5ft_count": len(summary.contour_5ft_values),
+        "contour_10ft_count": len(summary.contour_10ft_values),
+        "contour_line_count": len(contour_lines),
     }
 
 
@@ -251,6 +362,9 @@ def create_site_assessment_from_neo4j(
     house_plan_points = house_graph["house_plan_points"]
     if not house_plan_points:
         house_plan_points = load_saved_house_plan_points(parcel_props.get(HOUSE_PLAN_POINTS_PROPERTY))
+    elevation_summary = load_saved_elevation_summary(parcel_props.get(ELEVATION_SUMMARY_PROPERTY))
+    contour_lines = load_saved_contour_lines(parcel_props.get(ELEVATION_CONTOURS_PROPERTY))
+    contour_lines = project_contour_lines_to_parcel_space(contour_lines, source_points)
     parcel_summary = ParcelSummary(
         source_path=Path(f"/neo4j/{database}/{parcel_id}.geojson"),
         geometry_type=feature_props.get("geometryTypeName", "Polygon"),
@@ -267,13 +381,45 @@ def create_site_assessment_from_neo4j(
         house=build_house_summary(house_graph["house"], house_plan_points, parcel_summary.metrics.linear_unit, parcel_summary.metrics.area_unit),
         rooms=house_graph["rooms"],
         utility_connections=house_graph["utility_connections"],
+        elevation_summary=elevation_summary,
         assumptions=build_assumptions(parcel_summary, None),
         concept_zones=concept_zones,
         landscape_features=load_saved_feature_layout(parcel_props.get(FEATURE_LAYOUT_PROPERTY), generated_features),
         recommendations=build_recommendations(parcel_summary, None),
         next_data_to_collect=build_next_data_list(),
+        contour_lines=contour_lines,
         house_plan_points=house_plan_points,
     )
+
+
+def project_contour_lines_to_parcel_space(
+    contour_lines: list[ContourLineSummary],
+    parcel_source_points: list[tuple[float, float]],
+) -> list[ContourLineSummary]:
+    if not contour_lines or not parcel_source_points or not points_look_like_lon_lat(parcel_source_points):
+        return contour_lines
+
+    reference_point = parcel_source_points[0]
+    projected_lines: list[ContourLineSummary] = []
+    for contour in contour_lines:
+        projected_paths: list[list[tuple[float, float]]] = []
+        for path in contour.paths:
+            if not path:
+                continue
+            projected_paths.append(
+                project_lon_lat_to_feet_with_reference(path, reference_point=reference_point)
+            )
+        projected_lines.append(
+            ContourLineSummary(
+                contour_id=contour.contour_id,
+                label=contour.label,
+                elevation_feet=contour.elevation_feet,
+                interval_feet=contour.interval_feet,
+                source_layer=contour.source_layer,
+                paths=projected_paths,
+            )
+        )
+    return projected_lines
 
 
 def save_feature_layout_to_neo4j(
@@ -314,6 +460,50 @@ def save_feature_layout_to_neo4j(
 
     if result is None:
         raise ValueError(f"Parcel {parcel_id!r} not found in database {database!r}.")
+
+
+def save_house_footprint_points_to_neo4j(
+    *,
+    parcel_id: str,
+    points: list[tuple[float, float]],
+    database: str = DEFAULT_WEB_DATABASE,
+    apply_constraints: bool = True,
+) -> dict[str, int | str]:
+    if len(points) < 3:
+        raise ValueError("House footprint must contain at least three unique points.")
+
+    config = get_neo4j_config(database=database)
+    driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+    try:
+        if apply_constraints:
+            apply_dataset_constraints(driver, config.database, HOUSE_CONSTRAINT_PATH)
+        with driver.session(database=config.database) as session:
+            parcel_exists = session.run(
+                """
+                MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})
+                RETURN parcel.parcelId AS parcel_id
+                """,
+                parcel_id=parcel_id,
+            ).single()
+            if parcel_exists is None:
+                raise ValueError(f"Parcel {parcel_id!r} not found in database {database!r}.")
+            sync_house_graph(session, parcel_id=parcel_id, house_plan_points=points)
+            session.run(
+                f"""
+                MATCH (parcel:Parcel:Resource {{parcelId: $parcel_id}})
+                SET parcel.{HOUSE_PLAN_POINTS_PROPERTY} = $house_plan_payload
+                """,
+                parcel_id=parcel_id,
+                house_plan_payload=json.dumps([[float(point[0]), float(point[1])] for point in points]),
+            ).consume()
+    finally:
+        driver.close()
+
+    return {
+        "database": database,
+        "parcel_id": parcel_id,
+        "house_vertex_count": len(points),
+    }
 
 
 def remove_feature_from_neo4j(
@@ -428,6 +618,70 @@ def load_saved_house_plan_points(raw_value: Any) -> list[tuple[float, float]]:
         except (TypeError, ValueError):
             return []
     return hydrated
+
+
+def load_saved_elevation_summary(raw_value: Any) -> ElevationSummary | None:
+    if not raw_value:
+        return None
+    try:
+        payload = json.loads(str(raw_value))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return ElevationSummary(
+            source=str(payload["source"]),
+            min_elevation_feet=float(payload["min_elevation_feet"]),
+            max_elevation_feet=float(payload["max_elevation_feet"]),
+            relief_feet=float(payload["relief_feet"]),
+            contour_5ft_values=[float(value) for value in payload.get("contour_5ft_values", [])],
+            contour_10ft_values=[float(value) for value in payload.get("contour_10ft_values", [])],
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def load_saved_contour_lines(raw_value: Any) -> list[ContourLineSummary]:
+    if not raw_value:
+        return []
+    try:
+        payload = json.loads(str(raw_value))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    contour_lines: list[ContourLineSummary] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        try:
+            raw_paths = item.get("paths", [])
+            paths: list[list[tuple[float, float]]] = []
+            for raw_path in raw_paths:
+                if not isinstance(raw_path, list):
+                    raise ValueError("Invalid contour path")
+                path: list[tuple[float, float]] = []
+                for point in raw_path:
+                    if not isinstance(point, (list, tuple)) or len(point) != 2:
+                        raise ValueError("Invalid contour point")
+                    path.append((float(point[0]), float(point[1])))
+                if path:
+                    paths.append(path)
+            contour_lines.append(
+                ContourLineSummary(
+                    contour_id=str(item["contour_id"]),
+                    label=str(item.get("label") or f"Contour {item['contour_id']}"),
+                    elevation_feet=float(item["elevation_feet"]),
+                    interval_feet=int(item["interval_feet"]),
+                    source_layer=str(item["source_layer"]),
+                    paths=paths,
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return contour_lines
 
 
 def load_graph_house_plan_points(config: Neo4jConfig, parcel_id: str) -> list[tuple[float, float]]:
@@ -852,6 +1106,263 @@ def build_house_summary(
         linear_unit=metrics.linear_unit or linear_unit,
         area_unit=metrics.area_unit or area_unit,
     )
+
+
+def fetch_suffolk_elevation_summary(closed_points: list[tuple[float, float]]) -> ElevationSummary:
+    contour_5ft_values = query_suffolk_contours(closed_points, SUFFOLK_CONTOUR_5FT_LAYER)
+    contour_10ft_values = query_suffolk_contours(closed_points, SUFFOLK_CONTOUR_10FT_LAYER)
+    if not contour_5ft_values and not contour_10ft_values:
+        raise ValueError("No Suffolk contour elevations intersected the parcel footprint.")
+    all_values = contour_5ft_values + contour_10ft_values
+    min_elevation = min(all_values)
+    max_elevation = max(all_values)
+    return ElevationSummary(
+        source="suffolk_county_gisviewer_contours",
+        min_elevation_feet=min_elevation,
+        max_elevation_feet=max_elevation,
+        relief_feet=max_elevation - min_elevation,
+        contour_5ft_values=contour_5ft_values,
+        contour_10ft_values=contour_10ft_values,
+    )
+
+
+def fetch_suffolk_elevation_dataset(
+    closed_points: list[tuple[float, float]],
+) -> tuple[ElevationSummary, list[ContourLineSummary]]:
+    contour_5ft = query_suffolk_contour_features(closed_points, SUFFOLK_CONTOUR_5FT_LAYER)
+    contour_10ft = query_suffolk_contour_features(closed_points, SUFFOLK_CONTOUR_10FT_LAYER)
+    contour_5ft_values = sorted({item.elevation_feet for item in contour_5ft})
+    contour_10ft_values = sorted({item.elevation_feet for item in contour_10ft})
+    if not contour_5ft_values and not contour_10ft_values:
+        raise ValueError("No Suffolk contour elevations intersected the parcel footprint.")
+    all_values = contour_5ft_values + contour_10ft_values
+    min_elevation = min(all_values)
+    max_elevation = max(all_values)
+    return (
+        ElevationSummary(
+            source="suffolk_county_gisviewer_contours",
+            min_elevation_feet=min_elevation,
+            max_elevation_feet=max_elevation,
+            relief_feet=max_elevation - min_elevation,
+            contour_5ft_values=contour_5ft_values,
+            contour_10ft_values=contour_10ft_values,
+        ),
+        contour_5ft + contour_10ft,
+    )
+
+
+def query_suffolk_building_footprints(
+    closed_points: list[tuple[float, float]],
+) -> list[SuffolkBuildingFootprintCandidate]:
+    payload = query_suffolk_layer(
+        closed_points,
+        layer_id=SUFFOLK_BUILDING_FOOTPRINT_LAYER,
+        out_fields="OBJECTID,STATUS,Shape.STArea(),Shape.STLength(),LASTUPDATE",
+        return_geometry=True,
+        out_sr=4326,
+    )
+    features = payload.get("features") or []
+    candidates: list[SuffolkBuildingFootprintCandidate] = []
+    for feature in features:
+        attributes = feature.get("attributes") or {}
+        status = attributes.get("STATUS")
+        if status == "DEMOLISHED":
+            continue
+        outer_ring = extract_primary_ring(feature.get("geometry") or {})
+        if len(outer_ring) < 3:
+            continue
+        candidates.append(
+            SuffolkBuildingFootprintCandidate(
+                object_id=attributes.get("OBJECTID", "unknown"),
+                status=str(status) if status not in {None, ""} else None,
+                area_square_feet=coerce_float(attributes.get("Shape.STArea()")),
+                perimeter_feet=coerce_float(attributes.get("Shape.STLength()")),
+                ring_points=outer_ring,
+            )
+        )
+    return candidates
+
+
+def choose_primary_building_footprint(
+    candidates: list[SuffolkBuildingFootprintCandidate],
+) -> SuffolkBuildingFootprintCandidate | None:
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda item: (
+            item.area_square_feet if item.area_square_feet is not None else polygon_area_estimate(item.ring_points),
+            item.perimeter_feet if item.perimeter_feet is not None else 0.0,
+        ),
+    )
+
+
+def query_suffolk_contours(closed_points: list[tuple[float, float]], layer_id: int) -> list[float]:
+    return sorted({item.elevation_feet for item in query_suffolk_contour_features(closed_points, layer_id)})
+
+
+def query_suffolk_contour_features(
+    closed_points: list[tuple[float, float]],
+    layer_id: int,
+) -> list[ContourLineSummary]:
+    payload = query_suffolk_layer(
+        closed_points,
+        layer_id=layer_id,
+        out_fields="OBJECTID,CONTOUR",
+        return_geometry=True,
+        out_sr=4326,
+    )
+    features = payload.get("features") or []
+    interval_feet = 5 if layer_id == SUFFOLK_CONTOUR_5FT_LAYER else 10
+    source_layer = f"suffolk_contours_{interval_feet}ft"
+    contour_lines: list[ContourLineSummary] = []
+    for feature in features:
+        attributes = feature.get("attributes") or {}
+        contour = attributes.get("CONTOUR")
+        if contour is None:
+            continue
+        try:
+            elevation_feet = float(contour)
+        except (TypeError, ValueError):
+            continue
+        raw_geometry = feature.get("geometry") or {}
+        raw_paths = raw_geometry.get("paths") or []
+        paths: list[list[tuple[float, float]]] = []
+        for raw_path in raw_paths:
+            if not isinstance(raw_path, list):
+                continue
+            path: list[tuple[float, float]] = []
+            for point in raw_path:
+                if not isinstance(point, list) or len(point) < 2:
+                    continue
+                path.append((float(point[0]), float(point[1])))
+            if len(path) >= 2:
+                paths.append(path)
+        if not paths:
+            continue
+        object_id = attributes.get("OBJECTID")
+        contour_lines.append(
+            ContourLineSummary(
+                contour_id=f"contour-{interval_feet}-{object_id}",
+                label=f"Contour {elevation_feet:.0f} ft",
+                elevation_feet=elevation_feet,
+                interval_feet=interval_feet,
+                source_layer=source_layer,
+                paths=paths,
+            )
+        )
+    return contour_lines
+
+
+def query_suffolk_layer(
+    closed_points: list[tuple[float, float]],
+    *,
+    layer_id: int,
+    out_fields: str,
+    return_geometry: bool,
+    out_sr: int | None = None,
+) -> dict[str, Any]:
+    geometry = {
+        "rings": [[ [float(x), float(y)] for x, y in closed_points ]],
+        "spatialReference": {"wkid": 4326},
+    }
+    query_params: dict[str, Any] = {
+        "geometry": json.dumps(geometry, separators=(",", ":")),
+        "geometryType": "esriGeometryPolygon",
+        "inSR": 4326,
+        "spatialRel": "esriSpatialRelIntersects",
+        "outFields": out_fields,
+        "returnGeometry": "true" if return_geometry else "false",
+        "f": "pjson",
+    }
+    if out_sr is not None:
+        query_params["outSR"] = out_sr
+    if layer_id in {SUFFOLK_CONTOUR_5FT_LAYER, SUFFOLK_CONTOUR_10FT_LAYER}:
+        query_params["orderByFields"] = "CONTOUR"
+    params = urllib.parse.urlencode(query_params)
+    url = f"{SUFFOLK_GIS_BASE}/{layer_id}/query?{params}"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json,text/plain,*/*",
+            "Referer": "https://gisapps.suffolkcountyny.gov/gisviewer/",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def serialize_elevation_summary(summary: ElevationSummary) -> dict[str, Any]:
+    return {
+        "source": summary.source,
+        "min_elevation_feet": summary.min_elevation_feet,
+        "max_elevation_feet": summary.max_elevation_feet,
+        "relief_feet": summary.relief_feet,
+        "contour_5ft_values": list(summary.contour_5ft_values),
+        "contour_10ft_values": list(summary.contour_10ft_values),
+    }
+
+
+def serialize_contour_line(contour_line: ContourLineSummary) -> dict[str, Any]:
+    return {
+        "contour_id": contour_line.contour_id,
+        "label": contour_line.label,
+        "elevation_feet": contour_line.elevation_feet,
+        "interval_feet": contour_line.interval_feet,
+        "source_layer": contour_line.source_layer,
+        "paths": [
+            [[float(x), float(y)] for x, y in path]
+            for path in contour_line.paths
+        ],
+    }
+
+
+def extract_primary_ring(geometry: dict[str, Any]) -> list[tuple[float, float]]:
+    rings = geometry.get("rings") or []
+    best_ring: list[tuple[float, float]] = []
+    best_area = -1.0
+    for raw_ring in rings:
+        if not isinstance(raw_ring, list):
+            continue
+        ring_points = [
+            (float(point[0]), float(point[1]))
+            for point in raw_ring
+            if isinstance(point, list) and len(point) >= 2
+        ]
+        if len(ring_points) < 4:
+            continue
+        open_ring = ring_points[:-1] if ring_points[0] == ring_points[-1] else ring_points
+        area = polygon_area_estimate(open_ring)
+        if area > best_area:
+            best_area = area
+            best_ring = open_ring
+    return best_ring
+
+
+def polygon_area_estimate(points: list[tuple[float, float]]) -> float:
+    if len(points) < 3:
+        return 0.0
+    closed_points = points + [points[0]]
+    total = 0.0
+    for index in range(len(closed_points) - 1):
+        x1, y1 = closed_points[index]
+        x2, y2 = closed_points[index + 1]
+        total += (x1 * y2) - (x2 * y1)
+    return abs(total) / 2.0
+
+
+def coerce_float(value: Any) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def build_feature_collection(

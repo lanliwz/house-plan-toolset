@@ -97,6 +97,14 @@ uv run house-landscape load-house-footprint \
   --database hp62n
 ```
 
+Load Suffolk contour-based elevation summary into an existing parcel:
+
+```bash
+uv run house-landscape load-elevation \
+  --parcel-id 0200154000400039003 \
+  --database hp62n
+```
+
 ## Web UI Integration
 
 The web UI now reads parcel data from Neo4j by default.
@@ -112,14 +120,16 @@ Relevant API routes:
 - `POST /api/neo4j/parcels/{parcel_id}/features`
 - `DELETE /api/neo4j/parcels/{parcel_id}/features/{feature_id}`
 - `POST /api/neo4j/parcels/{parcel_id}/house-footprint`
+- `POST /api/neo4j/parcels/{parcel_id}/elevation`
 
 Typical flow:
 
 1. Load parcel GeoJSON into `hp62n`.
 2. Optionally load a house footprint into that parcel.
-3. Start the web UI.
-4. Open the parcel selector in the intake bar.
-5. Load a parcel directly from Neo4j.
+3. Optionally load Suffolk contour elevation summary into that parcel.
+4. Start the web UI.
+5. Open the parcel selector in the intake bar.
+6. Load a parcel directly from Neo4j.
 
 Start the UI:
 
@@ -132,6 +142,7 @@ When you save edits from the web UI, the project now persists:
 - legacy parcel JSON properties for compatibility
 - graph-native `House` and `BuildingFootprint` nodes for house footprint editing
 - graph-native `Room` and `UtilityConnection` nodes generated from the current house footprint
+- stored Suffolk contour elevation summary on the parcel node for UI and report use
 - graph-native `LandscapePlan` and `LandscapeFeature` nodes for design features
 
 ## Optional Flags

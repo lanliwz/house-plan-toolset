@@ -788,6 +788,22 @@ input {
     cursor: pointer;
 }
 
+.contour-line {
+    fill: none;
+    stroke: rgba(126, 167, 216, 0.78);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 7 5;
+    cursor: pointer;
+}
+
+.contour-line.selected {
+    stroke: var(--accent);
+    stroke-width: 2.8;
+    stroke-dasharray: none;
+}
+
 .edge-line.selected {
     stroke: var(--accent);
 }
