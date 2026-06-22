@@ -26,7 +26,7 @@
                 <div>
                     <p class="eyebrow">House Plan Toolset</p>
                     <h1>Parcel Navigator</h1>
-                    <p class="header-text">Three-panel parcel review with catalog, interactive detail view, and property inspector.</p>
+                    <p class="header-text">Three-panel property review with catalog, interactive detail view, and property inspector.</p>
                 </div>
             </div>
             <div class="header-actions">
@@ -117,22 +117,44 @@
                     <div class="nav-section">
                         <button class="nav-section-header" data-section-toggle="house-plan-list" type="button" aria-expanded="true">
                             <span class="section-toggle">▼</span>
-                            <span class="section-title">House Plan</span>
+                            <span class="section-title">House</span>
                             <span class="section-count" id="house-plan-count">0</span>
                         </button>
                         <div id="house-plan-list" class="catalog-list">
-                            <div class="placeholder">Editable house footprint will appear here.</div>
+                            <div class="placeholder">Editable house object will appear here.</div>
                         </div>
                     </div>
 
                     <div class="nav-section">
                         <button class="nav-section-header" data-section-toggle="house-vertex-list" type="button" aria-expanded="true">
                             <span class="section-toggle">▼</span>
-                            <span class="section-title">House Vertices</span>
+                            <span class="section-title">House Footprint Vertices</span>
                             <span class="section-count" id="house-vertex-count">0</span>
                         </button>
                         <div id="house-vertex-list" class="catalog-list">
                             <div class="placeholder">House-plan vertices will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="nav-section">
+                        <button class="nav-section-header" data-section-toggle="room-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
+                            <span class="section-title">Rooms</span>
+                            <span class="section-count" id="room-count">0</span>
+                        </button>
+                        <div id="room-list" class="catalog-list">
+                            <div class="placeholder">Room objects will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="nav-section">
+                        <button class="nav-section-header" data-section-toggle="utility-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
+                            <span class="section-title">Utilities</span>
+                            <span class="section-count" id="utility-count">0</span>
+                        </button>
+                        <div id="utility-list" class="catalog-list">
+                            <div class="placeholder">Utility connections will appear here.</div>
                         </div>
                     </div>
 
@@ -195,8 +217,8 @@
                         <span class="detail-chip">No object selected</span>
                     </div>
                     <div class="feature-actions">
-                        <button class="button secondary compact-button" id="add-house-plan" type="button" disabled>Add House Plan</button>
-                        <button class="button ghost compact-button" id="remove-house-plan" type="button" disabled>Remove House Plan</button>
+                        <button class="button secondary compact-button" id="add-house-plan" type="button" disabled>Add House</button>
+                        <button class="button ghost compact-button" id="remove-house-plan" type="button" disabled>Remove House</button>
                         <button class="button secondary compact-button" id="add-house-vertex" type="button" disabled>Add Vertex</button>
                         <button class="button ghost compact-button" id="remove-house-vertex" type="button" disabled>Remove Vertex</button>
                         <button class="button secondary compact-button" id="save-features" type="button" disabled>Save</button>

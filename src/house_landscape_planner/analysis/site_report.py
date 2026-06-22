@@ -5,7 +5,15 @@ from pathlib import Path
 from house_landscape_planner.analysis.landscape_features import build_landscape_features
 from house_landscape_planner.analysis.parcel import analyze_parcel
 from house_landscape_planner.io.image_loader import load_image_summary
-from house_landscape_planner.models import ConceptZone, ImageSummary, ParcelSummary, SiteAssessment
+from house_landscape_planner.models import (
+    ConceptZone,
+    HouseSummary,
+    ImageSummary,
+    ParcelSummary,
+    RoomSummary,
+    SiteAssessment,
+    UtilityConnectionSummary,
+)
 
 
 def build_recommendations(parcel: ParcelSummary, image: ImageSummary | None) -> list[str]:
@@ -144,6 +152,9 @@ def create_site_assessment(parcel_path: str | Path, image_path: str | Path | Non
     return SiteAssessment(
         parcel=parcel,
         image=image,
+        house=None,
+        rooms=[],
+        utility_connections=[],
         assumptions=build_assumptions(parcel, image),
         concept_zones=concept_zones,
         landscape_features=build_landscape_features(parcel, concept_zones),
@@ -216,6 +227,39 @@ def render_markdown_report(assessment: SiteAssessment) -> str:
         ]
     )
     lines.extend([f"- {item}" for item in assessment.assumptions])
+
+    lines.extend(
+        [
+            "",
+            "## House Program",
+        ]
+    )
+    if assessment.house is not None:
+        lines.extend(
+            [
+                f"- House: `{assessment.house.label}`",
+                f"- Footprint area: `{assessment.house.area:.2f}` {assessment.house.area_unit}",
+                f"- Footprint size: `{assessment.house.width:.2f} x {assessment.house.height:.2f}` {assessment.house.linear_unit}",
+            ]
+        )
+        if assessment.rooms:
+            lines.append("- Rooms:")
+            lines.extend(
+                [
+                    f"  - `{room.label}` | `{room.room_type}` | `{room.area:.1f}` {room.area_unit}"
+                    for room in assessment.rooms
+                ]
+            )
+        if assessment.utility_connections:
+            lines.append("- Utility connections:")
+            lines.extend(
+                [
+                    f"  - `{utility.label}` | `{utility.utility_type}` | `{utility.status}`"
+                    for utility in assessment.utility_connections
+                ]
+            )
+    else:
+        lines.append("- No house footprint or room program has been loaded yet.")
 
     lines.extend(
         [

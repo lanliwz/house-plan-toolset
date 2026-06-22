@@ -11,14 +11,15 @@ from pathlib import Path
 from typing import Any
 
 from neo4j import GraphDatabase
-from onto2ai_parcel import STAGING_CONSTRAINT_PATH
-from onto2ai_parcel.staging.pydantic_parcel_model import (
+
+from house_landscape_planner.onto2ai_compat import (
     BoundaryVertex,
     CountryEnum,
     GeoJSONFeature,
     GeoJSONFeatureCollection,
     Parcel,
     PolygonGeometry,
+    STAGING_CONSTRAINT_PATH,
     USPostalAddress,
     USStateEnum,
 )
@@ -32,7 +33,14 @@ from house_landscape_planner.analysis.site_report import (
     build_recommendations,
 )
 from house_landscape_planner.io.geojson_loader import load_geojson
-from house_landscape_planner.models import LandscapeFeature, ParcelSummary, SiteAssessment
+from house_landscape_planner.models import (
+    HouseSummary,
+    LandscapeFeature,
+    ParcelSummary,
+    RoomSummary,
+    SiteAssessment,
+    UtilityConnectionSummary,
+)
 
 
 USA_URI = "https://www.omg.org/spec/LCC/Countries/ISO3166-1-CountryCodes/UnitedStatesOfAmerica"
@@ -40,9 +48,13 @@ SUBDIVISION_URI_TEMPLATE = (
     "https://www.omg.org/spec/LCC/Countries/Regions/ISO3166-2-SubdivisionCodes-US/US-{state}"
 )
 PARCEL_NS = "http://www.onto2ai-toolset.com/ontology/parcel/Parcel/#"
+HOUSE_NS = "http://www.onto2ai-toolset.com/ontology/house/House#"
+LANDSCAPE_NS = "http://www.onto2ai-toolset.com/ontology/landscape/Landscape#"
 DEFAULT_WEB_DATABASE = os.getenv("NEO4J_HP62N_DB_NAME", "hp62n")
 FEATURE_LAYOUT_PROPERTY = "housePlanFeatureLayoutJson"
 HOUSE_PLAN_POINTS_PROPERTY = "housePlanPolygonJson"
+HOUSE_CONSTRAINT_PATH = Path(__file__).resolve().parents[3] / "resource" / "ontology" / "www_onto2ai-toolset_com" / "ontology" / "house" / "House.cypher"
+LANDSCAPE_CONSTRAINT_PATH = Path(__file__).resolve().parents[3] / "resource" / "ontology" / "www_onto2ai-toolset_com" / "ontology" / "landscape" / "Landscape.cypher"
 
 
 @dataclass(frozen=True)
@@ -85,6 +97,7 @@ def load_geojson_into_neo4j(
             ensure_database_exists(driver, config.database)
         if apply_constraints:
             apply_dataset_constraints(driver, config.database, STAGING_CONSTRAINT_PATH)
+            apply_dataset_constraints(driver, config.database, HOUSE_CONSTRAINT_PATH)
         with driver.session(database=config.database) as session:
             merge_collection_node(session, collection)
             for index, bundle in enumerate(bundles, start=1):
@@ -97,6 +110,66 @@ def load_geojson_into_neo4j(
         "feature_count": len(bundles),
         "parcel_count": len(bundles),
         "vertex_count": sum(len(bundle.parcel.has_parcel_geometry[0].has_boundary_vertex) for bundle in bundles),
+    }
+
+
+def load_house_footprint_into_neo4j(
+    *,
+    parcel_id: str,
+    house_geojson_path: str | Path,
+    database: str = DEFAULT_WEB_DATABASE,
+    apply_constraints: bool = True,
+) -> dict[str, int | str]:
+    config = get_neo4j_config(database=database)
+    data = load_geojson(house_geojson_path)
+    features = extract_features(data)
+    if len(features) != 1:
+        raise ValueError("House footprint input must contain exactly one feature.")
+
+    geometry = features[0].get("geometry") or {}
+    geometry_type = geometry.get("type")
+    if geometry_type == "Polygon":
+        ring = (geometry.get("coordinates") or [[]])[0]
+    elif geometry_type == "MultiPolygon":
+        ring = ((geometry.get("coordinates") or [[[]]])[0] or [[]])[0]
+    else:
+        raise ValueError(f"Unsupported house footprint geometry type: {geometry_type!r}")
+
+    if len(ring) < 4:
+        raise ValueError("House footprint must contain at least four coordinates.")
+
+    points = [(float(point[0]), float(point[1])) for point in ring[:-1]]
+    driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+    try:
+        if apply_constraints:
+            apply_dataset_constraints(driver, config.database, HOUSE_CONSTRAINT_PATH)
+        with driver.session(database=config.database) as session:
+            parcel_exists = session.run(
+                """
+                MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})
+                RETURN parcel.parcelId AS parcel_id
+                """,
+                parcel_id=parcel_id,
+            ).single()
+            if parcel_exists is None:
+                raise ValueError(f"Parcel {parcel_id!r} not found in database {database!r}.")
+            sync_house_graph(session, parcel_id=parcel_id, house_plan_points=points)
+            session.run(
+                f"""
+                MATCH (parcel:Parcel:Resource {{parcelId: $parcel_id}})
+                SET parcel.{HOUSE_PLAN_POINTS_PROPERTY} = $house_plan_payload
+                """,
+                parcel_id=parcel_id,
+                house_plan_payload=json.dumps([[float(point[0]), float(point[1])] for point in points]),
+            ).consume()
+    finally:
+        driver.close()
+
+    return {
+        "database": database,
+        "parcel_id": parcel_id,
+        "house_vertex_count": len(points),
+        "geometry_type": geometry_type,
     }
 
 
@@ -174,6 +247,10 @@ def create_site_assessment_from_neo4j(
     ]
     closed_points = source_points + [source_points[0]]
     metric_points, _, _, _ = normalize_points(closed_points)
+    house_graph = load_house_graph_details(config, parcel_id)
+    house_plan_points = house_graph["house_plan_points"]
+    if not house_plan_points:
+        house_plan_points = load_saved_house_plan_points(parcel_props.get(HOUSE_PLAN_POINTS_PROPERTY))
     parcel_summary = ParcelSummary(
         source_path=Path(f"/neo4j/{database}/{parcel_id}.geojson"),
         geometry_type=feature_props.get("geometryTypeName", "Polygon"),
@@ -187,12 +264,15 @@ def create_site_assessment_from_neo4j(
     return SiteAssessment(
         parcel=parcel_summary,
         image=None,
+        house=build_house_summary(house_graph["house"], house_plan_points, parcel_summary.metrics.linear_unit, parcel_summary.metrics.area_unit),
+        rooms=house_graph["rooms"],
+        utility_connections=house_graph["utility_connections"],
         assumptions=build_assumptions(parcel_summary, None),
         concept_zones=concept_zones,
         landscape_features=load_saved_feature_layout(parcel_props.get(FEATURE_LAYOUT_PROPERTY), generated_features),
         recommendations=build_recommendations(parcel_summary, None),
         next_data_to_collect=build_next_data_list(),
-        house_plan_points=load_saved_house_plan_points(parcel_props.get(HOUSE_PLAN_POINTS_PROPERTY)),
+        house_plan_points=house_plan_points,
     )
 
 
@@ -213,6 +293,8 @@ def save_feature_layout_to_neo4j(
     )
     try:
         with driver.session(database=config.database) as session:
+            apply_dataset_constraints(driver, config.database, HOUSE_CONSTRAINT_PATH)
+            apply_dataset_constraints(driver, config.database, LANDSCAPE_CONSTRAINT_PATH)
             result = session.run(
                 f"""
                 MATCH (parcel:Parcel:Resource {{parcelId: $parcel_id}})
@@ -224,6 +306,9 @@ def save_feature_layout_to_neo4j(
                 payload=payload,
                 house_plan_payload=house_plan_payload,
             ).single()
+            if result is not None:
+                sync_house_graph(session, parcel_id=parcel_id, house_plan_points=house_plan_points)
+                sync_landscape_graph(session, parcel_id=parcel_id, features=features)
     finally:
         driver.close()
 
@@ -345,6 +430,86 @@ def load_saved_house_plan_points(raw_value: Any) -> list[tuple[float, float]]:
     return hydrated
 
 
+def load_graph_house_plan_points(config: Neo4jConfig, parcel_id: str) -> list[tuple[float, float]]:
+    driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+    try:
+        with driver.session(database=config.database) as session:
+            row = session.run(
+                """
+                MATCH (:Parcel:Resource {parcelId: $parcel_id})-[:HAS_HOUSE]->(:House)-[:HAS_BUILDING_FOOTPRINT]->(footprint:BuildingFootprint)
+                RETURN footprint.coordinateSequenceJson AS points
+                """,
+                parcel_id=parcel_id,
+            ).single()
+    finally:
+        driver.close()
+
+    if row is None or not row["points"]:
+        return []
+
+    try:
+        payload = json.loads(str(row["points"]))
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    points: list[tuple[float, float]] = []
+    for item in payload:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return []
+        try:
+            points.append((float(item[0]), float(item[1])))
+        except (TypeError, ValueError):
+            return []
+    return points
+
+
+def load_house_graph_details(config: Neo4jConfig, parcel_id: str) -> dict[str, Any]:
+    driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+    try:
+        with driver.session(database=config.database) as session:
+            house_row = session.run(
+                """
+                MATCH (:Parcel:Resource {parcelId: $parcel_id})-[:HAS_HOUSE]->(house:House)
+                OPTIONAL MATCH (house)-[:HAS_BUILDING_FOOTPRINT]->(footprint:BuildingFootprint)
+                RETURN properties(house) AS house_props, properties(footprint) AS footprint_props
+                """,
+                parcel_id=parcel_id,
+            ).single()
+            room_rows = session.run(
+                """
+                MATCH (:Parcel:Resource {parcelId: $parcel_id})-[:HAS_HOUSE]->(:House)-[:HAS_ROOM]->(room:Room)
+                RETURN properties(room) AS room_props
+                ORDER BY room.rdfs__label
+                """,
+                parcel_id=parcel_id,
+            )
+            utility_rows = session.run(
+                """
+                MATCH (:Parcel:Resource {parcelId: $parcel_id})-[:HAS_HOUSE]->(:House)-[:HAS_UTILITY_CONNECTION]->(utility:UtilityConnection)
+                RETURN properties(utility) AS utility_props
+                ORDER BY utility.rdfs__label
+                """,
+                parcel_id=parcel_id,
+            )
+            house = dict((house_row or {}).get("house_props") or {})
+            footprint = dict((house_row or {}).get("footprint_props") or {})
+            rooms = [hydrate_room_summary(dict(row["room_props"] or {})) for row in room_rows]
+            utilities = [hydrate_utility_summary(dict(row["utility_props"] or {})) for row in utility_rows]
+    finally:
+        driver.close()
+
+    points = load_saved_house_plan_points(footprint.get("coordinateSequenceJson")) if footprint else []
+    return {
+        "house": house,
+        "house_plan_points": points,
+        "rooms": [room for room in rooms if room is not None],
+        "utility_connections": [utility for utility in utilities if utility is not None],
+    }
+
+
 def ensure_database_exists(driver, database: str) -> None:
     with driver.session(database="system") as session:
         session.run(f"CREATE DATABASE `{database}` IF NOT EXISTS").consume()
@@ -376,6 +541,8 @@ def parse_constraints_file(path: Path) -> list[str]:
 
 
 def apply_dataset_constraints(driver, database: str, path: Path) -> int:
+    if not path.exists():
+        return 0
     applied = 0
     with driver.session(database=database) as session:
         for stmt in parse_constraints_file(path):
@@ -383,6 +550,308 @@ def apply_dataset_constraints(driver, database: str, path: Path) -> int:
                 session.run(stmt).consume()
                 applied += 1
     return applied
+
+
+def sync_house_graph(session, *, parcel_id: str, house_plan_points: list[tuple[float, float]] | None) -> None:
+    session.run(
+        """
+        MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})
+        OPTIONAL MATCH (parcel)-[:HAS_HOUSE]->(house:House)
+        OPTIONAL MATCH (house)-[:HAS_BUILDING_FOOTPRINT]->(footprint:BuildingFootprint)
+        OPTIONAL MATCH (house)-[:HAS_ROOM]->(room:Room)
+        OPTIONAL MATCH (house)-[:HAS_UTILITY_CONNECTION]->(utility:UtilityConnection)
+        DETACH DELETE room, utility
+        DETACH DELETE house, footprint
+        """,
+        parcel_id=parcel_id,
+    ).consume()
+
+    if not house_plan_points or len(house_plan_points) < 3:
+        return
+
+    parcel_row = session.run(
+        """
+        MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})
+        RETURN coalesce(parcel.fullAddressText, parcel.FULLADDRESS, parcel.rdfs__label, parcel.parcelId) AS label
+        """,
+        parcel_id=parcel_id,
+    ).single()
+    house_id = f"{parcel_id}-house-1"
+    footprint_id = f"{parcel_id}-footprint-1"
+    points_json = json.dumps([[float(point[0]), float(point[1])] for point in house_plan_points])
+    session.run(
+        """
+        MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})
+        MERGE (house:House {houseId: $house_id})
+        SET house.uri = $house_uri,
+            house.rdfs__label = $house_label,
+            house.source = 'house_plan_toolset'
+        MERGE (footprint:BuildingFootprint {footprintId: $footprint_id})
+        SET footprint.uri = $footprint_uri,
+            footprint.rdfs__label = 'building footprint',
+            footprint.coordinateSequenceJson = $points_json,
+            footprint.coordinateSequenceText = $points_text
+        MERGE (parcel)-[:HAS_HOUSE {uri: $has_house_uri, materialized: true, rdfs__label: 'has house'}]->(house)
+        MERGE (house)-[:HAS_BUILDING_FOOTPRINT {uri: $has_building_footprint_uri, materialized: true, rdfs__label: 'has building footprint'}]->(footprint)
+        """,
+        parcel_id=parcel_id,
+        house_id=house_id,
+        house_uri=f"urn:house-plan-toolset:house:{house_id}",
+        house_label=(parcel_row["label"] if parcel_row else parcel_id),
+        footprint_id=footprint_id,
+        footprint_uri=f"urn:house-plan-toolset:footprint:{footprint_id}",
+        points_json=points_json,
+        points_text=" | ".join(f"{point[0]},{point[1]}" for point in house_plan_points),
+        has_house_uri=f"{HOUSE_NS}hasHouse",
+        has_building_footprint_uri=f"{HOUSE_NS}hasBuildingFootprint",
+    ).consume()
+    sync_default_rooms(session, house_id=house_id, house_plan_points=house_plan_points)
+    sync_default_utility_connections(session, house_id=house_id)
+
+
+def sync_landscape_graph(session, *, parcel_id: str, features: list[LandscapeFeature]) -> None:
+    session.run(
+        """
+        MATCH (:Parcel:Resource {parcelId: $parcel_id})-[:HAS_LANDSCAPE_PLAN]->(plan:LandscapePlan)
+        OPTIONAL MATCH (plan)-[:hasLandscapeFeature]->(feature:LandscapeFeature)
+        DETACH DELETE feature
+        """,
+        parcel_id=parcel_id,
+    ).consume()
+    session.run(
+        """
+        MATCH (:Parcel:Resource {parcelId: $parcel_id})-[:HAS_LANDSCAPE_PLAN]->(plan:LandscapePlan)
+        DETACH DELETE plan
+        """,
+        parcel_id=parcel_id,
+    ).consume()
+
+    if not features:
+        return
+
+    plan_id = f"{parcel_id}-landscape-plan"
+    session.run(
+        """
+        MATCH (parcel:Parcel:Resource {parcelId: $parcel_id})
+        MERGE (plan:LandscapePlan {planId: $plan_id})
+        SET plan.uri = $plan_uri,
+            plan.rdfs__label = 'landscape plan'
+        MERGE (parcel)-[:HAS_LANDSCAPE_PLAN {materialized: true, rdfs__label: 'has landscape plan'}]->(plan)
+        """,
+        parcel_id=parcel_id,
+        plan_id=plan_id,
+        plan_uri=f"urn:house-plan-toolset:landscape-plan:{plan_id}",
+    ).consume()
+
+    for feature in features:
+        feature_label = ontology_fragment(feature.ontology_class) or "LandscapeFeature"
+        feature_props = serialize_landscape_feature(feature)
+        feature_props["featureId"] = feature_props.pop("feature_id")
+        feature_props["zoneName"] = feature_props.pop("zone_name")
+        feature_props["targetSharePercent"] = feature_props.pop("target_share_percent")
+        feature_props["anchorXRatio"] = feature_props.pop("anchor_x_ratio")
+        feature_props["anchorYRatio"] = feature_props.pop("anchor_y_ratio")
+        feature_props["widthRatio"] = feature_props.pop("width_ratio")
+        feature_props["heightRatio"] = feature_props.pop("height_ratio")
+        feature_props["visualKind"] = feature_props.pop("visual_kind")
+        feature_props["rotationDegrees"] = feature_props.pop("rotation_degrees")
+        session.run(
+            f"""
+            MATCH (plan:LandscapePlan {{planId: $plan_id}})
+            MERGE (feature:LandscapeFeature:`{feature_label}` {{featureId: $feature_id}})
+            SET feature += $feature_props,
+                feature.uri = $feature_uri,
+                feature.rdfs__label = $feature_name
+            MERGE (plan)-[:hasLandscapeFeature {{
+                uri: $has_feature_uri,
+                materialized: true,
+                rdfs__label: 'has landscape feature'
+            }}]->(feature)
+            """,
+            plan_id=plan_id,
+            feature_id=feature.feature_id,
+            feature_props=feature_props,
+            feature_uri=f"urn:house-plan-toolset:landscape-feature:{feature.feature_id}",
+            feature_name=feature.name,
+            has_feature_uri=f"{LANDSCAPE_NS}hasLandscapeFeature",
+        ).consume()
+
+
+def ontology_fragment(uri: str | None) -> str | None:
+    if not uri:
+        return None
+    fragment = uri.rsplit("#", 1)[-1].strip()
+    return fragment or None
+
+
+def sync_default_rooms(session, *, house_id: str, house_plan_points: list[tuple[float, float]]) -> None:
+    rooms = build_default_room_summaries(house_id, house_plan_points)
+    for room in rooms:
+        session.run(
+            """
+            MATCH (house:House {houseId: $house_id})
+            MERGE (room:Room {roomId: $room_id})
+            SET room.rdfs__label = $label,
+                room.roomType = $room_type,
+                room.levelName = $level_name,
+                room.area = $area,
+                room.areaUnit = $area_unit,
+                room.width = $width,
+                room.height = $height,
+                room.linearUnit = $linear_unit,
+                room.notes = $notes,
+                room.uri = $room_uri
+            MERGE (house)-[:HAS_ROOM {materialized: true, rdfs__label: 'has room'}]->(room)
+            """,
+            house_id=house_id,
+            room_id=room.room_id,
+            label=room.label,
+            room_type=room.room_type,
+            level_name=room.level_name,
+            area=room.area,
+            area_unit=room.area_unit,
+            width=room.width,
+            height=room.height,
+            linear_unit=room.linear_unit,
+            notes=room.notes,
+            room_uri=f"urn:house-plan-toolset:room:{room.room_id}",
+        ).consume()
+
+
+def sync_default_utility_connections(session, *, house_id: str) -> None:
+    for utility in build_default_utility_connections(house_id):
+        session.run(
+            """
+            MATCH (house:House {houseId: $house_id})
+            MERGE (utility:UtilityConnection {utilityConnectionId: $utility_id})
+            SET utility.rdfs__label = $label,
+                utility.utilityType = $utility_type,
+                utility.status = $status,
+                utility.notes = $notes,
+                utility.uri = $utility_uri
+            MERGE (house)-[:HAS_UTILITY_CONNECTION {materialized: true, rdfs__label: 'has utility connection'}]->(utility)
+            """,
+            house_id=house_id,
+            utility_id=utility.utility_connection_id,
+            label=utility.label,
+            utility_type=utility.utility_type,
+            status=utility.status,
+            notes=utility.notes,
+            utility_uri=f"urn:house-plan-toolset:utility:{utility.utility_connection_id}",
+        ).consume()
+
+
+def build_default_room_summaries(house_id: str, house_plan_points: list[tuple[float, float]]) -> list[RoomSummary]:
+    closed_points = list(house_plan_points) + [house_plan_points[0]]
+    metrics = compute_metrics(closed_points)
+    total_area = metrics.area
+    width = metrics.width
+    height = metrics.height
+    room_specs = [
+        ("living-room", "Living Room", "living_room", 0.42, "Primary shared room facing the main outdoor living side."),
+        ("kitchen", "Kitchen", "kitchen", 0.22, "Placed adjacent to circulation and outdoor serving access."),
+        ("bedroom", "Primary Bedroom", "bedroom", 0.24, "Quiet private room oriented away from the public frontage."),
+        ("bathroom", "Bathroom", "bathroom", 0.12, "Compact service room grouped with house utilities."),
+    ]
+    rooms: list[RoomSummary] = []
+    for index, (suffix, label, room_type, share, notes) in enumerate(room_specs, start=1):
+        room_area = round(total_area * share, 2)
+        room_width = round(width * (0.45 if room_type in {"living_room", "bedroom"} else 0.32), 2)
+        room_height = round(max(room_area / max(room_width, 1.0), 1.0), 2)
+        rooms.append(
+            RoomSummary(
+                room_id=f"{house_id}-{suffix}-{index}",
+                label=label,
+                room_type=room_type,
+                level_name="main level",
+                area=room_area,
+                area_unit=metrics.area_unit,
+                width=room_width,
+                height=room_height,
+                linear_unit=metrics.linear_unit,
+                notes=notes,
+            )
+        )
+    return rooms
+
+
+def build_default_utility_connections(house_id: str) -> list[UtilityConnectionSummary]:
+    return [
+        UtilityConnectionSummary(
+            utility_connection_id=f"{house_id}-utility-water",
+            label="Water Service",
+            utility_type="water",
+            status="assumed_existing",
+            notes="Confirm main shutoff, hose bib routing, and irrigation tie-in potential.",
+        ),
+        UtilityConnectionSummary(
+            utility_connection_id=f"{house_id}-utility-power",
+            label="Electrical Service",
+            utility_type="electrical",
+            status="assumed_existing",
+            notes="Confirm panel capacity for outdoor lighting, pumps, and future charging loads.",
+        ),
+        UtilityConnectionSummary(
+            utility_connection_id=f"{house_id}-utility-drainage",
+            label="Stormwater Discharge",
+            utility_type="drainage",
+            status="needs_verification",
+            notes="Verify gutter leaders, footing drains, and legal discharge path away from the house.",
+        ),
+    ]
+
+
+def hydrate_room_summary(props: dict[str, Any]) -> RoomSummary | None:
+    if not props.get("roomId"):
+        return None
+    return RoomSummary(
+        room_id=str(props["roomId"]),
+        label=str(props.get("rdfs__label") or props.get("label") or props["roomId"]),
+        room_type=str(props.get("roomType") or "room"),
+        level_name=str(props.get("levelName") or "main level"),
+        area=float(props.get("area") or 0.0),
+        area_unit=str(props.get("areaUnit") or "square feet"),
+        width=float(props.get("width") or 0.0),
+        height=float(props.get("height") or 0.0),
+        linear_unit=str(props.get("linearUnit") or "feet"),
+        notes=str(props.get("notes") or ""),
+    )
+
+
+def hydrate_utility_summary(props: dict[str, Any]) -> UtilityConnectionSummary | None:
+    if not props.get("utilityConnectionId"):
+        return None
+    return UtilityConnectionSummary(
+        utility_connection_id=str(props["utilityConnectionId"]),
+        label=str(props.get("rdfs__label") or props.get("label") or props["utilityConnectionId"]),
+        utility_type=str(props.get("utilityType") or "utility"),
+        status=str(props.get("status") or "unknown"),
+        notes=str(props.get("notes") or ""),
+    )
+
+
+def build_house_summary(
+    house_props: dict[str, Any],
+    house_plan_points: list[tuple[float, float]],
+    linear_unit: str,
+    area_unit: str,
+) -> HouseSummary | None:
+    if not house_plan_points:
+        return None
+    closed_points = list(house_plan_points) + [house_plan_points[0]]
+    metrics = compute_metrics(closed_points)
+    return HouseSummary(
+        house_id=str(house_props.get("houseId") or "house-1"),
+        label=str(house_props.get("rdfs__label") or "House"),
+        source=str(house_props.get("source") or "neo4j_house_graph"),
+        footprint_points=list(house_plan_points),
+        area=metrics.area,
+        perimeter=metrics.perimeter,
+        width=metrics.width,
+        height=metrics.height,
+        linear_unit=metrics.linear_unit or linear_unit,
+        area_unit=metrics.area_unit or area_unit,
+    )
 
 
 def build_feature_collection(

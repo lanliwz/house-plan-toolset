@@ -7,14 +7,21 @@ from tempfile import TemporaryDirectory
 
 from fastapi import UploadFile
 from pydantic import BaseModel, Field
-from onto2ai_parcel.staging.pydantic_parcel_model import BoundaryVertex, Parcel, PolygonGeometry
+
+from house_landscape_planner.onto2ai_compat import BoundaryVertex, Parcel, PolygonGeometry
 
 from house_landscape_planner.analysis.site_diagram import render_site_diagram_svg
 from house_landscape_planner.analysis.site_report import (
     create_site_assessment,
     render_markdown_report,
 )
-from house_landscape_planner.models import ConceptZone, LandscapeFeature, SiteAssessment
+from house_landscape_planner.models import (
+    ConceptZone,
+    LandscapeFeature,
+    RoomSummary,
+    SiteAssessment,
+    UtilityConnectionSummary,
+)
 
 
 class ParcelMetricsResponse(BaseModel):
@@ -129,11 +136,31 @@ class FeatureObjectResponse(BaseModel):
     properties: dict[str, object]
 
 
+class RoomObjectResponse(BaseModel):
+    id: str
+    kind: str = "room"
+    label: str
+    subtitle: str
+    description: str
+    properties: dict[str, object]
+
+
+class UtilityObjectResponse(BaseModel):
+    id: str
+    kind: str = "utility"
+    label: str
+    subtitle: str
+    description: str
+    properties: dict[str, object]
+
+
 class SiteObjectsResponse(BaseModel):
     parcel: ParcelObjectResponse
     edges: list[EdgeObjectResponse]
     vertices: list[VertexObjectResponse]
     features: list[FeatureObjectResponse]
+    rooms: list[RoomObjectResponse]
+    utilities: list[UtilityObjectResponse]
 
 
 class SiteAssessmentResponse(BaseModel):
@@ -270,6 +297,8 @@ def serialize_site_objects(
     edges = build_edge_objects(open_points, assessment)
     vertices = build_vertex_objects(open_points, assessment, parcel_model)
     features = build_feature_objects(assessment)
+    rooms = build_room_objects(assessment.rooms)
+    utilities = build_utility_objects(assessment.utility_connections)
 
     metrics = assessment.parcel.metrics
     parcel = ParcelObjectResponse(
@@ -293,10 +322,19 @@ def serialize_site_objects(
             "edge_count": len(edges),
             "vertex_count": len(vertices),
             "feature_count": len(features),
+            "room_count": len(rooms),
+            "utility_count": len(utilities),
             **assessment.parcel.properties,
         },
     )
-    return SiteObjectsResponse(parcel=parcel, edges=edges, vertices=vertices, features=features)
+    return SiteObjectsResponse(
+        parcel=parcel,
+        edges=edges,
+        vertices=vertices,
+        features=features,
+        rooms=rooms,
+        utilities=utilities,
+    )
 
 
 def build_edge_objects(
@@ -391,6 +429,47 @@ def build_feature_objects(assessment: SiteAssessment) -> list[FeatureObjectRespo
             },
         )
         for feature in assessment.landscape_features
+    ]
+
+
+def build_room_objects(rooms: list[RoomSummary]) -> list[RoomObjectResponse]:
+    return [
+        RoomObjectResponse(
+            id=room.room_id,
+            label=room.label,
+            subtitle=f"{room.room_type.replace('_', ' ')} | {room.area:.1f} {room.area_unit}",
+            description=room.notes,
+            properties={
+                "room_id": room.room_id,
+                "room_type": room.room_type,
+                "level_name": room.level_name,
+                "area": room.area,
+                "area_unit": room.area_unit,
+                "width": room.width,
+                "height": room.height,
+                "linear_unit": room.linear_unit,
+                "notes": room.notes,
+            },
+        )
+        for room in rooms
+    ]
+
+
+def build_utility_objects(utilities: list[UtilityConnectionSummary]) -> list[UtilityObjectResponse]:
+    return [
+        UtilityObjectResponse(
+            id=utility.utility_connection_id,
+            label=utility.label,
+            subtitle=f"{utility.utility_type} | {utility.status}",
+            description=utility.notes,
+            properties={
+                "utility_connection_id": utility.utility_connection_id,
+                "utility_type": utility.utility_type,
+                "status": utility.status,
+                "notes": utility.notes,
+            },
+        )
+        for utility in utilities
     ]
 
 

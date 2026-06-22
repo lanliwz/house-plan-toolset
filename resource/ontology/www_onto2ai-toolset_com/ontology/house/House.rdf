@@ -1,0 +1,145 @@
+<?xml version="1.0"?>
+<rdf:RDF
+    xmlns="http://www.onto2ai-toolset.com/ontology/house/House#"
+    xml:base="http://www.onto2ai-toolset.com/ontology/house/House"
+    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    xmlns:owl="http://www.w3.org/2002/07/owl#"
+    xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+    xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+
+  <owl:Ontology rdf:about="http://www.onto2ai-toolset.com/ontology/house/House">
+    <rdfs:label>house ontology</rdfs:label>
+    <skos:definition>Ontology for modeling a residential house, its footprint, rooms, access surfaces, utility connections, and maintenance tasks.</skos:definition>
+  </owl:Ontology>
+
+  <owl:Class rdf:about="#House">
+    <rdfs:label>house</rdfs:label>
+    <skos:definition>A residential building located on a parcel and planned as part of the property lifecycle.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#BuildingFootprint">
+    <rdfs:label>building footprint</rdfs:label>
+    <skos:definition>A polygonal representation of the house outline used for siting, access, and outdoor design coordination.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#Room">
+    <rdfs:label>room</rdfs:label>
+    <skos:definition>An interior space within a house used for a functional domestic purpose.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#AccessSurface">
+    <rdfs:label>access surface</rdfs:label>
+    <skos:definition>A paved or otherwise constructed circulation surface such as a driveway, walkway, or terrace adjacency surface.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#Driveway">
+    <rdfs:subClassOf rdf:resource="#AccessSurface"/>
+    <rdfs:label>driveway</rdfs:label>
+    <skos:definition>An access surface used primarily for vehicle approach, parking connection, or garage access.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#Walkway">
+    <rdfs:subClassOf rdf:resource="#AccessSurface"/>
+    <rdfs:label>walkway</rdfs:label>
+    <skos:definition>An access surface used primarily for pedestrian movement between the house, street, and outdoor features.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#UtilityConnection">
+    <rdfs:label>utility connection</rdfs:label>
+    <skos:definition>A service connection or equipment interface supporting water, power, drainage, gas, communications, or related house systems.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#MaintenanceTask">
+    <rdfs:label>maintenance task</rdfs:label>
+    <skos:definition>A recurring or planned action needed to maintain a house, site feature, or utility asset in working order.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#ProjectPhase">
+    <rdfs:label>project phase</rdfs:label>
+    <skos:definition>A stage in the design, build, or maintenance lifecycle of a house property.</skos:definition>
+  </owl:Class>
+
+  <owl:ObjectProperty rdf:about="#hasBuildingFootprint">
+    <rdfs:label>has building footprint</rdfs:label>
+    <skos:definition>Relates a house to the footprint geometry used to represent its siting on the parcel.</skos:definition>
+    <rdfs:domain rdf:resource="#House"/>
+    <rdfs:range rdf:resource="#BuildingFootprint"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#hasHouse">
+    <rdfs:label>has house</rdfs:label>
+    <skos:definition>Relates a broader property or parcel context to the house located on that site.</skos:definition>
+    <rdfs:range rdf:resource="#House"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#hasRoom">
+    <rdfs:label>has room</rdfs:label>
+    <skos:definition>Relates a house to one of its interior rooms.</skos:definition>
+    <rdfs:domain rdf:resource="#House"/>
+    <rdfs:range rdf:resource="#Room"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#hasAccessSurface">
+    <rdfs:label>has access surface</rdfs:label>
+    <skos:definition>Relates a house or parcel context to a driveway, walkway, or similar access element.</skos:definition>
+    <rdfs:domain rdf:resource="#House"/>
+    <rdfs:range rdf:resource="#AccessSurface"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#hasUtilityConnection">
+    <rdfs:label>has utility connection</rdfs:label>
+    <skos:definition>Relates a house to a utility service connection or equipment node.</skos:definition>
+    <rdfs:domain rdf:resource="#House"/>
+    <rdfs:range rdf:resource="#UtilityConnection"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#requiresMaintenanceTask">
+    <rdfs:label>requires maintenance task</rdfs:label>
+    <skos:definition>Relates a house, room, or site-related object to a maintenance task that keeps it operational or in good condition.</skos:definition>
+    <rdfs:domain rdf:resource="#House"/>
+    <rdfs:range rdf:resource="#MaintenanceTask"/>
+  </owl:ObjectProperty>
+
+  <owl:DatatypeProperty rdf:about="#houseId">
+    <rdfs:label>house id</rdfs:label>
+    <skos:definition>Stable identifier for a house instance within the property graph.</skos:definition>
+    <rdfs:domain rdf:resource="#House"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#footprintId">
+    <rdfs:label>footprint id</rdfs:label>
+    <skos:definition>Stable identifier for a building footprint geometry instance.</skos:definition>
+    <rdfs:domain rdf:resource="#BuildingFootprint"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#roomId">
+    <rdfs:label>room id</rdfs:label>
+    <skos:definition>Stable identifier for a room instance.</skos:definition>
+    <rdfs:domain rdf:resource="#Room"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#taskId">
+    <rdfs:label>task id</rdfs:label>
+    <skos:definition>Stable identifier for a maintenance task instance.</skos:definition>
+    <rdfs:domain rdf:resource="#MaintenanceTask"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#utilityConnectionId">
+    <rdfs:label>utility connection id</rdfs:label>
+    <skos:definition>Stable identifier for a utility connection instance.</skos:definition>
+    <rdfs:domain rdf:resource="#UtilityConnection"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#phaseName">
+    <rdfs:label>phase name</rdfs:label>
+    <skos:definition>Name of a project phase such as concept design, permitting, build, or maintenance.</skos:definition>
+    <rdfs:domain rdf:resource="#ProjectPhase"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+</rdf:RDF>

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
-from house_landscape_planner.loaders.neo4j_parcel_loader import build_feature_collection
+import pytest
+
+from house_landscape_planner.loaders import neo4j_parcel_loader
+from house_landscape_planner.loaders.neo4j_parcel_loader import (
+    build_feature_collection,
+    load_house_footprint_into_neo4j,
+)
 
 
 def test_build_feature_collection_creates_onto2ai_parcel_models() -> None:
@@ -47,3 +54,60 @@ def test_build_feature_collection_adds_us_postal_address_when_fields_exist(tmp_p
     assert address.city_name == "East Setauket"
     assert address.postal_code == "11733"
     assert address.subdivision.value == "NY"
+
+
+def test_load_house_footprint_into_neo4j_rejects_missing_parcel(monkeypatch, tmp_path) -> None:
+    house_geojson = tmp_path / "house.geojson"
+    house_geojson.write_text(
+        json.dumps(
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [0.0, 10.0], [0.0, 0.0]]],
+                },
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeResult:
+        def __init__(self, row=None):
+            self._row = row
+
+        def single(self):
+            return self._row
+
+        def consume(self):
+            return None
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def run(self, query, **params):
+            if "RETURN parcel.parcelId AS parcel_id" in query:
+                return FakeResult(None)
+            return FakeResult()
+
+    class FakeDriver:
+        def session(self, database=None):
+            return FakeSession()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(neo4j_parcel_loader, "get_neo4j_config", lambda database: neo4j_parcel_loader.Neo4jConfig("bolt://test", "neo4j", "pw", database))
+    monkeypatch.setattr(neo4j_parcel_loader.GraphDatabase, "driver", lambda uri, auth=None: FakeDriver())
+
+    with pytest.raises(ValueError, match="Parcel 'missing' not found"):
+        load_house_footprint_into_neo4j(
+            parcel_id="missing",
+            house_geojson_path=house_geojson,
+            database="hp62n",
+            apply_constraints=False,
+        )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import uvicorn
 from fastapi import FastAPI, Body, File, HTTPException, Request, UploadFile
@@ -13,6 +14,7 @@ from house_landscape_planner.analysis.site_report import create_site_assessment
 from house_landscape_planner.loaders.neo4j_parcel_loader import (
     DEFAULT_WEB_DATABASE,
     create_site_assessment_from_neo4j,
+    load_house_footprint_into_neo4j,
     list_parcels_from_neo4j,
     remove_feature_from_neo4j,
     save_feature_layout_to_neo4j,
@@ -126,6 +128,33 @@ async def remove_neo4j_parcel_feature(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"Failed to remove parcel feature from Neo4j: {exc}") from exc
+
+
+@app.post("/api/neo4j/parcels/{parcel_id}/house-footprint", response_model=SiteAssessmentResponse)
+async def upload_neo4j_house_footprint(
+    parcel_id: str,
+    house: UploadFile = File(...),
+    database: str = DEFAULT_WEB_DATABASE,
+) -> SiteAssessmentResponse:
+    if not house.filename:
+        raise HTTPException(status_code=400, detail="House footprint GeoJSON file is required.")
+
+    suffix = Path(house.filename).suffix or ".geojson"
+    try:
+        with TemporaryDirectory(prefix="house-footprint-ui-") as tmp_dir:
+            house_path = Path(tmp_dir) / f"house-footprint{suffix}"
+            house_path.write_bytes(await house.read())
+            load_house_footprint_into_neo4j(
+                parcel_id=parcel_id,
+                house_geojson_path=house_path,
+                database=database,
+            )
+        assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
+        return serialize_assessment(assessment, parcel_name=parcel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to load house footprint into Neo4j: {exc}") from exc
 
 
 @app.post("/api/analyze", response_model=SiteAssessmentResponse)

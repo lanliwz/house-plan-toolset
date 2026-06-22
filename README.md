@@ -1,37 +1,39 @@
 # House Plan Toolset
 
-Python project for planning landscaping around a single home on an irregular hillside parcel.
+Python project for property planning around a single home, starting with parcel review, house-footprint modeling, and early site-design workflows.
 
 Repository name: `house-plan-toolset`
 
-The repo is set up to work from:
+## Current Scope
 
-- a parcel boundary GeoJSON file
+The project currently focuses on:
 
-It gives you a practical starting point for:
+- parcel geometry analysis from GeoJSON
+- Neo4j-backed parcel browsing and review
+- editable house-footprint modeling inside the parcel
+- starter room and utility-connection modeling derived from the house footprint
+- ontology-backed landscape feature planning for hillside and irregular lots
+- a browser-based three-panel property navigator for parcel, house, room, utility, edge, vertex, and design-feature objects
 
-- parcel geometry analysis
-- irregular-lot constraints review
-- hillside-specific landscape recommendations
-- ontology-backed landscape feature programming
-- a Neo4j-backed browser parcel review workflow
-- a repeatable site intake workflow for later expansion into grading, drainage, planting, access, and retaining-wall design
+This is an early property-planning foundation, not yet a full interior-design, construction-management, or maintenance platform.
 
 ## Project Layout
 
 - `src/house_landscape_planner/`
-  - core package
+  - core package, analysis logic, Neo4j loaders, and web app
 - `data/input/`
-  - place your parcel GeoJSON here
+  - parcel and house-footprint GeoJSON inputs
 - `data/output/`
   - generated planning reports
+- `resource/ontology/`
+  - landscape and house ontology source files plus Cypher companions
 - `tests/`
-  - lightweight geometry tests
+  - web, loader, and geometry regression coverage
 
 ## Web UI
 
-The project now includes a FastAPI-based web UI inspired by the structure used in `neo4j-onto2ai-toolset`.
-It defaults to reading parcel data from the Neo4j `hp62n` database and also supports loading a local GeoJSON file from the browser.
+The project includes a FastAPI-based web UI inspired by `neo4j-onto2ai-toolset`.
+It defaults to reading parcel data from the Neo4j `hp62n` database and also supports loading a local parcel GeoJSON file directly in the browser.
 
 Start it with:
 
@@ -44,10 +46,11 @@ Then open `http://127.0.0.1:8181`.
 
 The web app lets you:
 
-- browse parcels from Neo4j database `hp62n` by default
+- browse parcels from Neo4j database `hp62n`
 - load a selected local parcel GeoJSON file with the `Load` action
-- review parcel metrics, assumptions, recommendations, and parcel properties
-- inspect the interactive parcel detail view with parcel, edge, vertex, and landscape feature objects
+- inspect parcel, house, room, utility, edge, vertex, and landscape-feature objects
+- review parcel metrics, assumptions, recommendations, and source parcel properties
+- edit and save house footprints and landscape features back to Neo4j
 - preview and download the generated markdown report
 
 Loader documentation:
@@ -57,15 +60,14 @@ Loader documentation:
 ## Quick Start
 
 1. Sync the project environment with `uv`.
-2. Put your files into `data/input/`.
-3. Load the parcel into Neo4j.
+2. Load a parcel into Neo4j.
+3. Optionally attach a house footprint to the parcel.
 4. Start the web UI.
 
 ```bash
 uv sync
-uv run house-landscape load-neo4j \
-  --parcel data/input/parcel_62n.geojson \
-  --database hp62n
+uv run house-landscape load-neo4j   --parcel data/input/parcel_62n.geojson   --database hp62n
+uv run house-landscape load-house-footprint   --parcel-id 0200154000400039003   --house data/input/house_footprint.geojson   --database hp62n
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
@@ -77,6 +79,7 @@ Common commands:
 uv sync
 uv run python -m pytest
 uv run house-landscape load-neo4j --parcel data/input/parcel_62n.geojson --database hp62n
+uv run house-landscape load-house-footprint --parcel-id 0200154000400039003 --house data/input/house_footprint.geojson --database hp62n
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
@@ -86,27 +89,46 @@ uv run house-landscape serve --host 127.0.0.1 --port 8181
 
 - `FeatureCollection`, `Feature`, `Polygon`, and `MultiPolygon` are supported
 - the first polygon ring is used as the parcel boundary
-- parcel properties are preserved in the report
+- scalar parcel properties are preserved in the report and Neo4j parcel node
+
+### House Footprint GeoJSON
+
+- exactly one `Feature`, `Polygon`, or `MultiPolygon` footprint is expected
+- the first polygon ring is used as the editable house footprint
+- loading a footprint into Neo4j also generates starter `Room` and `UtilityConnection` graph objects
 
 ## Current Analysis
 
 The generated report currently includes:
 
-- parcel area, perimeter, bounding box, and centroid
-- an irregularity score based on shape compactness
+- parcel area, perimeter, bounding box, centroid, and irregularity score
 - ontology-backed landscape features mapped to concept zones such as arrival gardens, circulation paths, terraces, bioswales, and privacy planting
+- a starter house-program section when a house footprint is available
 - a simple steep-site planning checklist tailored to hillside residential landscaping
-- suggested next data to collect for more accurate hillside design
+- suggested next data to collect for more accurate property planning
 
-## Landscape Ontology
+## Ontologies
 
-The repository now includes a landscape ontology source file and matching Cypher companion artifact:
+Landscape ontology artifacts:
 
 - [Landscape.rdf](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.rdf)
 - [Landscape.cypher](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.cypher)
 
+House ontology artifacts:
+
+- [House.rdf](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/house/House.rdf)
+- [House.cypher](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/house/House.cypher)
+
+## Neo4j Notes
+
+- The Neo4j-first workflow expects parcel data loaded into `hp62n`.
+- Saved house footprints are persisted both as legacy parcel JSON properties and as graph-native `House` and `BuildingFootprint` nodes.
+- Each persisted house footprint generates starter `Room` and `UtilityConnection` nodes linked to the house.
+- Saved landscape features are mirrored into graph-native `LandscapePlan` and `LandscapeFeature` nodes.
+- `load-house-footprint` and `POST /api/neo4j/parcels/{parcel_id}/house-footprint` both attach a house footprint to an existing parcel.
+
 ## Notes
 
-- The Neo4j web flow expects parcel data loaded with the Onto2AI parcel-model loader into `hp62n`.
-- If you use browser file loading instead of Neo4j, the UI will analyze the selected GeoJSON directly without writing to the database.
-- This starter repo is intentionally lightweight so we can extend it around your actual parcel data once those files are in place.
+- Browser file loading analyzes the selected parcel without writing to Neo4j.
+- The current room and utility generation is intentionally simple and serves as a graph foundation for future interior, build, and maintenance planning.
+- The project is still an early foundation that we can extend into richer house, circulation, utility, and maintenance workflows.

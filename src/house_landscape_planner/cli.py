@@ -9,7 +9,10 @@ from house_landscape_planner.analysis.site_report import (
     render_markdown_report,
     write_markdown_report,
 )
-from house_landscape_planner.loaders.neo4j_parcel_loader import load_geojson_into_neo4j
+from house_landscape_planner.loaders.neo4j_parcel_loader import (
+    load_geojson_into_neo4j,
+    load_house_footprint_into_neo4j,
+)
 from house_landscape_planner.webapp.main import run_server
 
 
@@ -58,6 +61,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not apply Onto2AI parcel dataset constraints before loading.",
     )
+
+    load_house = subparsers.add_parser(
+        "load-house-footprint",
+        help="Load a house footprint GeoJSON and attach it to an existing parcel in Neo4j.",
+    )
+    load_house.add_argument("--parcel-id", required=True, help="Existing parcel id in Neo4j.")
+    load_house.add_argument("--house", required=True, help="Path to house footprint GeoJSON.")
+    load_house.add_argument("--database", default="hp62n", help="Target Neo4j database name.")
+    load_house.add_argument(
+        "--skip-constraints",
+        action="store_true",
+        help="Do not apply local house constraints before loading the footprint.",
+    )
     return parser
 
 
@@ -88,6 +104,16 @@ def main() -> int:
             database=args.database,
             default_state=args.state,
             ensure_database=not args.skip_create_db,
+            apply_constraints=not args.skip_constraints,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "load-house-footprint":
+        result = load_house_footprint_into_neo4j(
+            parcel_id=args.parcel_id,
+            house_geojson_path=args.house,
+            database=args.database,
             apply_constraints=not args.skip_constraints,
         )
         print(json.dumps(result, indent=2, sort_keys=True))

@@ -270,8 +270,8 @@ function setupHousePlanEditing() {
         }
 
         if (action === "move-plan") {
-            state.selectedKind = "house-plan";
-            state.selectedId = "house-plan";
+            state.selectedKind = "house";
+            state.selectedId = "house";
         } else if (action === "move-vertex") {
             state.selectedKind = "house-vertex";
             state.selectedId = getHouseVertexId(pointIndex);
@@ -460,12 +460,14 @@ function syncHousePlanObjects(payload) {
     const perimeter = roundValue(computePolygonPerimeter(housePoints), 2);
 
     payload.objects.housePlan = {
-        kind: "house-plan",
-        id: "house-plan",
-        label: "House Plan",
+        kind: "house",
+        id: "house",
+        label: "House",
         subtitle: `${housePoints.length} edges | ${formatNumber(area)} ${areaUnit}`,
-        description: "Editable multi-edge house footprint placed inside the parcel.",
+        description: "Editable house footprint placed inside the parcel as the current building model.",
         properties: {
+            house_id: payload.parcel_properties?.PARCELID ? `${payload.parcel_properties.PARCELID}-house-1` : "house-1",
+            source: payload.persistence_mode === "neo4j" ? "neo4j_house_graph" : "session_house_model",
             vertex_count: housePoints.length,
             edge_count: housePoints.length,
             width,
@@ -482,7 +484,7 @@ function syncHousePlanObjects(payload) {
         id: getHouseVertexId(index),
         label: `House Vertex ${index + 1}`,
         subtitle: `${formatNumber(point[0])}, ${formatNumber(point[1])}`,
-        description: "Editable vertex on the house-plan footprint.",
+        description: "Editable vertex on the house footprint.",
         properties: {
             linear_unit: linearUnit,
             source_x: roundValue(point[0], 4),
@@ -518,6 +520,8 @@ function renderCatalog() {
         edges,
         vertices,
         features,
+        rooms,
+        utilities,
         housePlan,
         houseVertices = [],
     } = state.assessment.objects;
@@ -527,6 +531,8 @@ function renderCatalog() {
     document.getElementById("vertex-count").textContent = String(vertices.length);
     document.getElementById("house-plan-count").textContent = housePlan ? "1" : "0";
     document.getElementById("house-vertex-count").textContent = String(houseVertices.length);
+    document.getElementById("room-count").textContent = String(rooms.length);
+    document.getElementById("utility-count").textContent = String(utilities.length);
     document.getElementById("feature-count").textContent = String(features.length);
     document.getElementById("patio-count").textContent = String(patioFeatures.length);
 
@@ -535,10 +541,16 @@ function renderCatalog() {
     document.getElementById("vertex-list").innerHTML = vertices.map(renderCatalogItem).join("");
     document.getElementById("house-plan-list").innerHTML = housePlan
         ? renderCatalogItem(housePlan)
-        : '<div class="placeholder">Add a house plan to start editing the footprint.</div>';
+        : '<div class="placeholder">Add a house object to start editing the footprint.</div>';
     document.getElementById("house-vertex-list").innerHTML = houseVertices.length
         ? houseVertices.map(renderCatalogItem).join("")
-        : '<div class="placeholder">House-plan vertices will appear here.</div>';
+        : '<div class="placeholder">House footprint vertices will appear here.</div>';
+    document.getElementById("room-list").innerHTML = rooms.length
+        ? rooms.map(renderCatalogItem).join("")
+        : '<div class="placeholder">Room objects will appear here.</div>';
+    document.getElementById("utility-list").innerHTML = utilities.length
+        ? utilities.map(renderCatalogItem).join("")
+        : '<div class="placeholder">Utility connections will appear here.</div>';
     document.getElementById("feature-list").innerHTML = features.map(renderCatalogItem).join("");
     document.getElementById("patio-list").innerHTML = patioFeatures.length
         ? patioFeatures.map(renderCatalogItem).join("")
@@ -706,7 +718,7 @@ function buildHousePlanSvg(data, project) {
     }
 
     const polygonPoints = housePoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
-    const selectedPlan = state.selectedKind === "house-plan" ? "selected" : "";
+    const selectedPlan = state.selectedKind === "house" ? "selected" : "";
     const edgeMarkup = housePoints.map((point, index) => {
         const next = housePoints[(index + 1) % housePoints.length];
         return `
@@ -727,7 +739,7 @@ function buildHousePlanSvg(data, project) {
 
     return `
         ${edgeMarkup}
-        <polygon class="house-plan-fill ${selectedPlan}" data-kind="house-plan" data-id="house-plan" data-house-plan-action="move-plan" points="${polygonPoints}"></polygon>
+        <polygon class="house-plan-fill ${selectedPlan}" data-kind="house" data-id="house" data-house-plan-action="move-plan" points="${polygonPoints}"></polygon>
         ${outline}
         ${vertexMarkup}
     `;
@@ -1154,8 +1166,8 @@ function addHousePlan() {
         return;
     }
     updateHousePlanPoints(buildDefaultHousePlanPoints(state.assessment.parcel_boundary_points || []));
-    state.selectedKind = "house-plan";
-    state.selectedId = "house-plan";
+    state.selectedKind = "house";
+    state.selectedId = "house";
     renderSelection();
 }
 
@@ -1214,8 +1226,8 @@ function removeHousePlanVertex() {
     const points = state.assessment.house_plan_points.map((point) => [...point]);
     points.splice(index, 1);
     updateHousePlanPoints(points);
-    state.selectedKind = "house-plan";
-    state.selectedId = "house-plan";
+    state.selectedKind = "house";
+    state.selectedId = "house";
     renderSelection();
 }
 
@@ -1284,12 +1296,18 @@ function buildDetailTags(item) {
     if (item.kind === "parcel") {
         tags.push(`<span class="detail-chip">${escapeHtml(state.assessment.geometry_type)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(state.assessment.metrics.area, state.assessment.metrics.area_unit))}</span>`);
-    } else if (item.kind === "house-plan") {
+    } else if (item.kind === "house") {
         tags.push(`<span class="detail-chip">${escapeHtml(String(item.properties.vertex_count))} vertices</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</span>`);
     } else if (item.kind === "house-vertex") {
         tags.push(`<span class="detail-chip">Vertex ${escapeHtml(String(item.properties.vertex_index))}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.linear_unit)}</span>`);
+    } else if (item.kind === "room") {
+        tags.push(`<span class="detail-chip">${escapeHtml(item.properties.room_type)}</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</span>`);
+    } else if (item.kind === "utility") {
+        tags.push(`<span class="detail-chip">${escapeHtml(item.properties.utility_type)}</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(item.properties.status)}</span>`);
     } else if (item.kind === "edge") {
         tags.push(`<span class="detail-chip">${escapeHtml(formatNumber(item.properties.length))} ${escapeHtml(item.properties.linear_unit)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.direction)}</span>`);
@@ -1325,7 +1343,7 @@ function buildSelectionSummary(item) {
         `;
     }
 
-    if (item.kind === "house-plan") {
+    if (item.kind === "house") {
         return `
             <p>${escapeHtml(item.description)}</p>
             <ul class="selection-list">
@@ -1333,6 +1351,27 @@ function buildSelectionSummary(item) {
                 <li>Width: ${escapeHtml(formatNumber(item.properties.width))} ${escapeHtml(item.properties.linear_unit)}</li>
                 <li>Height: ${escapeHtml(formatNumber(item.properties.height))} ${escapeHtml(item.properties.linear_unit)}</li>
                 <li>Area: ${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</li>
+            </ul>
+        `;
+    }
+
+    if (item.kind === "room") {
+        return `
+            <p>${escapeHtml(item.description)}</p>
+            <ul class="selection-list">
+                <li>Type: ${escapeHtml(item.properties.room_type)}</li>
+                <li>Level: ${escapeHtml(item.properties.level_name)}</li>
+                <li>Area: ${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</li>
+            </ul>
+        `;
+    }
+
+    if (item.kind === "utility") {
+        return `
+            <p>${escapeHtml(item.description)}</p>
+            <ul class="selection-list">
+                <li>Type: ${escapeHtml(item.properties.utility_type)}</li>
+                <li>Status: ${escapeHtml(item.properties.status)}</li>
             </ul>
         `;
     }
@@ -1464,11 +1503,17 @@ function getSelectedObject() {
     if (state.selectedKind === "parcel") {
         return state.assessment.objects.parcel;
     }
-    if (state.selectedKind === "house-plan") {
+    if (state.selectedKind === "house") {
         return state.assessment.objects.housePlan;
     }
     if (state.selectedKind === "house-vertex") {
         return state.assessment.objects.houseVertices.find((item) => item.id === state.selectedId) || null;
+    }
+    if (state.selectedKind === "room") {
+        return state.assessment.objects.rooms.find((item) => item.id === state.selectedId) || null;
+    }
+    if (state.selectedKind === "utility") {
+        return state.assessment.objects.utilities.find((item) => item.id === state.selectedId) || null;
     }
     if (state.selectedKind === "edge") {
         return state.assessment.objects.edges.find((item) => item.id === state.selectedId) || null;
@@ -1535,13 +1580,17 @@ function resetResults() {
     document.getElementById("vertex-count").textContent = "0";
     document.getElementById("house-plan-count").textContent = "0";
     document.getElementById("house-vertex-count").textContent = "0";
+    document.getElementById("room-count").textContent = "0";
+    document.getElementById("utility-count").textContent = "0";
     document.getElementById("feature-count").textContent = "0";
     document.getElementById("patio-count").textContent = "0";
     document.getElementById("parcel-list").innerHTML = '<div class="placeholder">Load a parcel to populate the catalog.</div>';
     document.getElementById("edge-list").innerHTML = '<div class="placeholder">Boundary edges will appear here.</div>';
     document.getElementById("vertex-list").innerHTML = '<div class="placeholder">Corner vertices will appear here.</div>';
     document.getElementById("house-plan-list").innerHTML = '<div class="placeholder">Editable house footprint will appear here.</div>';
-    document.getElementById("house-vertex-list").innerHTML = '<div class="placeholder">House-plan vertices will appear here.</div>';
+    document.getElementById("house-vertex-list").innerHTML = '<div class="placeholder">House footprint vertices will appear here.</div>';
+    document.getElementById("room-list").innerHTML = '<div class="placeholder">Room objects will appear here.</div>';
+    document.getElementById("utility-list").innerHTML = '<div class="placeholder">Utility connections will appear here.</div>';
     document.getElementById("feature-list").innerHTML = '<div class="placeholder">Garden design features will appear here.</div>';
     document.getElementById("patio-list").innerHTML = '<div class="placeholder">Patio design features will appear here.</div>';
     document.getElementById("assumptions-list").innerHTML = '<li class="placeholder-line">No assumptions loaded yet.</li>';
@@ -1637,7 +1686,7 @@ async function saveFeatures() {
         }
         applyAssessment(payload);
         updateStatus(
-            `Saved ${payload.landscape_features.length} features and ${payload.house_plan_points.length} house-plan points to Neo4j.`,
+            `Saved ${payload.landscape_features.length} features and ${payload.house_plan_points.length} house footprint points to Neo4j.`,
             false,
         );
     } catch (error) {

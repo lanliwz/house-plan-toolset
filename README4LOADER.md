@@ -15,6 +15,7 @@ The loader in this project:
   - `GeoJSONFeature`
   - `GeoJSONFeatureCollection`
 - applies the packaged parcel Neo4j constraints
+- applies the local house ontology constraints used by the web design layer
 - loads dataset nodes and materialized relationships into a Neo4j database
 - feeds the default parcel catalog used by the web UI
 
@@ -87,6 +88,15 @@ Example result:
 }
 ```
 
+Load a house footprint into an existing parcel:
+
+```bash
+uv run house-landscape load-house-footprint \
+  --parcel-id 0200154000400039003 \
+  --house data/input/house_footprint.geojson \
+  --database hp62n
+```
+
 ## Web UI Integration
 
 The web UI now reads parcel data from Neo4j by default.
@@ -99,19 +109,30 @@ Relevant API routes:
 
 - `GET /api/neo4j/parcels`
 - `GET /api/neo4j/parcels/{parcel_id}`
+- `POST /api/neo4j/parcels/{parcel_id}/features`
+- `DELETE /api/neo4j/parcels/{parcel_id}/features/{feature_id}`
+- `POST /api/neo4j/parcels/{parcel_id}/house-footprint`
 
 Typical flow:
 
 1. Load parcel GeoJSON into `hp62n`.
-2. Start the web UI.
-3. Open the parcel selector in the intake bar.
-4. Load a parcel directly from Neo4j.
+2. Optionally load a house footprint into that parcel.
+3. Start the web UI.
+4. Open the parcel selector in the intake bar.
+5. Load a parcel directly from Neo4j.
 
 Start the UI:
 
 ```bash
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
+
+When you save edits from the web UI, the project now persists:
+
+- legacy parcel JSON properties for compatibility
+- graph-native `House` and `BuildingFootprint` nodes for house footprint editing
+- graph-native `Room` and `UtilityConnection` nodes generated from the current house footprint
+- graph-native `LandscapePlan` and `LandscapeFeature` nodes for design features
 
 ## Optional Flags
 

@@ -71,9 +71,58 @@ class LandscapeFeature:
 
 
 @dataclass(slots=True)
+class HouseSummary:
+    house_id: str
+    label: str
+    source: str
+    footprint_points: list[tuple[float, float]]
+    area: float
+    perimeter: float
+    width: float
+    height: float
+    linear_unit: str
+    area_unit: str
+
+
+@dataclass(slots=True)
+class RoomSummary:
+    room_id: str
+    label: str
+    room_type: str
+    level_name: str
+    area: float
+    area_unit: str
+    width: float
+    height: float
+    linear_unit: str
+    notes: str
+
+
+@dataclass(slots=True)
+class UtilityConnectionSummary:
+    utility_connection_id: str
+    label: str
+    utility_type: str
+    status: str
+    notes: str
+
+
+@dataclass(slots=True)
+class MaintenanceTask:
+    task_id: str
+    label: str
+    cadence: str
+    related_object_type: str
+    notes: str
+
+
+@dataclass(slots=True)
 class SiteAssessment:
     parcel: ParcelSummary
     image: ImageSummary | None
+    house: HouseSummary | None
+    rooms: list[RoomSummary]
+    utility_connections: list[UtilityConnectionSummary]
     assumptions: list[str]
     concept_zones: list[ConceptZone]
     landscape_features: list[LandscapeFeature]

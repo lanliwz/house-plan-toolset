@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -43,6 +44,8 @@ def test_sample_analysis_endpoint_returns_report_payload() -> None:
     assert len(payload["objects"]["features"]) == len(payload["landscape_features"])
     assert len(payload["objects"]["edges"]) == payload["metrics"]["vertex_count"]
     assert len(payload["objects"]["vertices"]) == payload["metrics"]["vertex_count"]
+    assert payload["objects"]["rooms"] == []
+    assert payload["objects"]["utilities"] == []
 
 
 def test_neo4j_catalog_endpoint(monkeypatch) -> None:
@@ -60,9 +63,14 @@ def test_neo4j_catalog_endpoint(monkeypatch) -> None:
 
 
 def test_neo4j_parcel_endpoint_returns_site_assessment(monkeypatch) -> None:
+    def fake_neo4j_assessment(parcel_id, database="hp62n"):
+        assessment = create_site_assessment("tests/data/sample_parcel.geojson")
+        assessment.parcel.source_path = Path(f"/neo4j/{database}/{parcel_id}.geojson")
+        return assessment
+
     monkeypatch.setattr(
         "house_landscape_planner.webapp.main.create_site_assessment_from_neo4j",
-        lambda parcel_id, database="hp62n": create_site_assessment("tests/data/sample_parcel.geojson"),
+        fake_neo4j_assessment,
     )
 
     response = client.get("/api/neo4j/parcels/p-1")
@@ -119,6 +127,55 @@ def test_save_neo4j_features_endpoint_returns_updated_assessment(monkeypatch) ->
     assert response.status_code == 200
     assert saved == {"parcel_id": "p-1", "database": "hp62n", "feature_count": 1, "house_plan_point_count": 4}
     assert response.json()["parcel_name"] == "p-1"
+
+
+def test_upload_neo4j_house_footprint_endpoint_returns_updated_assessment(monkeypatch) -> None:
+    loaded: dict[str, object] = {}
+
+    def fake_load_house(*, parcel_id, house_geojson_path, database="hp62n", apply_constraints=True):
+        loaded["parcel_id"] = parcel_id
+        loaded["database"] = database
+        loaded["path_name"] = Path(house_geojson_path).name
+        loaded["apply_constraints"] = apply_constraints
+
+    def fake_neo4j_assessment(parcel_id, database="hp62n"):
+        assessment = create_site_assessment("tests/data/sample_parcel.geojson")
+        assessment.parcel.source_path = Path(f"/neo4j/{database}/{parcel_id}.geojson")
+        assessment.house_plan_points = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)]
+        assessment.rooms = []
+        assessment.utility_connections = []
+        return assessment
+
+    monkeypatch.setattr("house_landscape_planner.webapp.main.load_house_footprint_into_neo4j", fake_load_house)
+    monkeypatch.setattr("house_landscape_planner.webapp.main.create_site_assessment_from_neo4j", fake_neo4j_assessment)
+
+    house_geojson = b"""
+    {
+      "type": "Feature",
+      "properties": {},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [12, 0], [12, 9], [0, 9], [0, 0]]]
+      }
+    }
+    """
+
+    response = client.post(
+        "/api/neo4j/parcels/p-1/house-footprint",
+        params={"database": "hp62n"},
+        files={"house": ("house.geojson", house_geojson, "application/geo+json")},
+    )
+
+    assert response.status_code == 200
+    assert loaded == {
+        "parcel_id": "p-1",
+        "database": "hp62n",
+        "path_name": "house-footprint.geojson",
+        "apply_constraints": True,
+    }
+    assert response.json()["parcel_name"] == "p-1"
+    assert len(response.json()["house_plan_points"]) == 4
+    assert response.json()["persistence_mode"] == "neo4j"
 
 
 def test_remove_neo4j_feature_endpoint_returns_updated_assessment(monkeypatch) -> None:
