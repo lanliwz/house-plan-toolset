@@ -14,8 +14,8 @@ const state = {
 };
 
 const DETAIL_ZOOM_MIN = 0.5;
-const DETAIL_ZOOM_MAX = 3;
-const DETAIL_ZOOM_STEP = 0.25;
+const DETAIL_ZOOM_MAX = 10;
+const DETAIL_ZOOM_STEP = 0.1;
 
 document.addEventListener("DOMContentLoaded", () => {
     setupTheme();
@@ -63,6 +63,7 @@ function setupSectionToggles() {
             }
             const collapsed = target.classList.toggle("collapsed");
             button.setAttribute("aria-expanded", String(!collapsed));
+            button.scrollIntoView({ block: "nearest" });
         });
     });
 }
@@ -302,9 +303,12 @@ function setupHousePlanEditing() {
 }
 
 function setupZoomControls() {
+    const zoomSlider = document.getElementById("zoom-slider");
+
     document.getElementById("zoom-in").addEventListener("click", () => adjustDetailZoom(DETAIL_ZOOM_STEP));
     document.getElementById("zoom-out").addEventListener("click", () => adjustDetailZoom(-DETAIL_ZOOM_STEP));
     document.getElementById("zoom-reset").addEventListener("click", () => setDetailZoom(1));
+    zoomSlider.addEventListener("input", () => setDetailZoom(Number(zoomSlider.value)));
 
     ["detail-canvas", "garden-canvas", "patio-canvas"].forEach((canvasId) => {
         document.getElementById(canvasId).addEventListener("wheel", (event) => {
@@ -659,13 +663,14 @@ function buildParcelSvg(data) {
         const start = vertexPoints[index];
         const end = vertexPoints[(index + 1) % vertexPoints.length];
         const selected = state.selectedKind === "edge" && state.selectedId === edge.id ? "selected" : "";
-        const labelX = ((start.x + end.x) / 2).toFixed(1);
-        const labelY = (((start.y + end.y) / 2) - 10).toFixed(1);
+        const labelX = (start.x + end.x) / 2;
+        const labelY = ((start.y + end.y) / 2) - 10;
         return `
             <line class="edge-line ${selected}" data-kind="edge" data-id="${escapeHtml(edge.id)}"
                 x1="${start.x.toFixed(1)}" y1="${start.y.toFixed(1)}"
                 x2="${end.x.toFixed(1)}" y2="${end.y.toFixed(1)}" />
-            <text class="canvas-label" x="${labelX}" y="${labelY}" text-anchor="middle">${index + 1}</text>
+            <text class="canvas-label zoom-stable-label" text-anchor="middle"
+                transform="${buildStableLabelTransform(labelX, labelY)}">${index + 1}</text>
         `;
     }).join("");
 
@@ -674,8 +679,9 @@ function buildParcelSvg(data) {
         const selected = state.selectedKind === "vertex" && state.selectedId === vertex.id ? "selected" : "";
         return `
             <circle class="vertex-dot ${selected}" data-kind="vertex" data-id="${escapeHtml(vertex.id)}"
-                cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" />
-            <text class="canvas-label" x="${(point.x + 10).toFixed(1)}" y="${(point.y - 10).toFixed(1)}">${index + 1}</text>
+                cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${buildStableCircleRadius(4)}" />
+            <text class="canvas-label zoom-stable-label"
+                transform="${buildStableLabelTransform(point.x + 10, point.y - 10)}">${index + 1}</text>
         `;
     }).join("");
 
@@ -754,8 +760,9 @@ function buildHousePlanSvg(data, project) {
         const selected = state.selectedKind === "house-vertex" && state.selectedId === getHouseVertexId(index) ? "selected" : "";
         return `
             <circle class="house-vertex-dot ${selected}" data-kind="house-vertex" data-id="${escapeHtml(getHouseVertexId(index))}" data-house-plan-action="move-vertex" data-index="${index}"
-                cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4"></circle>
-            <text class="canvas-label" x="${(point.x + 8).toFixed(1)}" y="${(point.y - 8).toFixed(1)}">${index + 1}</text>
+                cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${buildStableCircleRadius(4)}"></circle>
+            <text class="canvas-label zoom-stable-label"
+                transform="${buildStableLabelTransform(point.x + 8, point.y - 8)}">${index + 1}</text>
         `;
     }).join("");
     const outline = selectedPlan ? `<polygon class="house-plan-outline" points="${polygonPoints}"></polygon>` : "";
@@ -875,8 +882,20 @@ function buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation
     return `
         ${shape}
         ${controls}
-        <text class="feature-label" x="${centerX.toFixed(1)}" y="${(centerY + 4).toFixed(1)}" text-anchor="middle">${escapeHtml(feature.label)}</text>
+        <text class="feature-label zoom-stable-label" text-anchor="middle"
+            transform="${buildStableLabelTransform(centerX, centerY + 4)}">${escapeHtml(feature.label)}</text>
     `;
+}
+
+function buildStableLabelTransform(x, y) {
+    const safeZoom = state.detailZoom || 1;
+    const inverseZoom = 1 / safeZoom;
+    return `translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${inverseZoom.toFixed(4)})`;
+}
+
+function buildStableCircleRadius(radius) {
+    const safeZoom = state.detailZoom || 1;
+    return (radius / safeZoom).toFixed(3);
 }
 
 function buildFeatureControls(featureId, centerX, centerY, width, height, rotation, cornerRadius) {
@@ -1672,8 +1691,7 @@ function adjustDetailZoom(delta) {
 }
 
 function setDetailZoom(value) {
-    const clampedZoom = Math.min(DETAIL_ZOOM_MAX, Math.max(DETAIL_ZOOM_MIN, value));
-    const nextZoom = Math.round(clampedZoom / DETAIL_ZOOM_STEP) * DETAIL_ZOOM_STEP;
+    const nextZoom = Math.min(DETAIL_ZOOM_MAX, Math.max(DETAIL_ZOOM_MIN, Number(value.toFixed(2))));
 
     if (nextZoom === state.detailZoom) {
         updateZoomControls();
@@ -1694,12 +1712,14 @@ function updateZoomControls() {
     const zoomIn = document.getElementById("zoom-in");
     const zoomOut = document.getElementById("zoom-out");
     const zoomReset = document.getElementById("zoom-reset");
+    const zoomSlider = document.getElementById("zoom-slider");
     const zoomPercent = Math.round(state.detailZoom * 100);
 
     zoomIn.disabled = state.detailZoom >= DETAIL_ZOOM_MAX;
     zoomOut.disabled = state.detailZoom <= DETAIL_ZOOM_MIN;
     zoomReset.textContent = `${zoomPercent}%`;
     zoomReset.disabled = !state.assessment && state.detailZoom === 1;
+    zoomSlider.value = String(state.detailZoom);
 }
 
 function downloadReport() {

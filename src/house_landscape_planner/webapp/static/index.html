@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=13">
+    <link rel="stylesheet" href="/static/css/styles.css?v=15">
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.umd.min.js"></script>
     <script>
         (function () {
@@ -244,49 +244,58 @@
                     <button class="view-toggle-button" id="view-patio" type="button">Patio Design</button>
                 </div>
 
-                <div class="view-panel active" id="parcel-view-panel">
-                    <div class="detail-canvas" id="detail-canvas">
-                        <div class="placeholder">Interactive parcel diagram will appear here.</div>
+                <div class="view-stack">
+                    <div class="view-panel active" id="parcel-view-panel">
+                        <div class="detail-canvas" id="detail-canvas">
+                            <div class="placeholder">Interactive parcel diagram will appear here.</div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="view-panel" id="garden-view-panel">
-                    <div class="detail-canvas" id="garden-canvas">
-                        <div class="placeholder">Garden design diagram will appear here.</div>
+                    <div class="view-panel" id="garden-view-panel">
+                        <div class="detail-canvas" id="garden-canvas">
+                            <div class="placeholder">Garden design diagram will appear here.</div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="view-panel" id="patio-view-panel">
-                    <div class="detail-canvas" id="patio-canvas">
-                        <div class="placeholder">Patio design diagram will appear here.</div>
+                    <div class="view-panel" id="patio-view-panel">
+                        <div class="detail-canvas" id="patio-canvas">
+                            <div class="placeholder">Patio design diagram will appear here.</div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="zoom-toolbar" aria-label="Diagram zoom controls">
-                    <span class="zoom-label">Zoom</span>
-                    <button class="zoom-button" id="zoom-out" type="button" aria-label="Zoom out">-</button>
-                    <button class="zoom-button" id="zoom-reset" type="button">100%</button>
-                    <button class="zoom-button" id="zoom-in" type="button" aria-label="Zoom in">+</button>
+                    <div class="zoom-toolbar in-canvas" aria-label="Diagram zoom controls">
+                        <span class="zoom-label">Zoom</span>
+                        <button class="zoom-button" id="zoom-out" type="button" aria-label="Zoom out">-</button>
+                        <input id="zoom-slider" class="zoom-slider" type="range" min="0.5" max="10" step="0.05" value="1" aria-label="Zoom slider">
+                        <button class="zoom-button" id="zoom-reset" type="button">100%</button>
+                        <button class="zoom-button" id="zoom-in" type="button" aria-label="Zoom in">+</button>
+                    </div>
                 </div>
 
                 <div class="middle-bottom">
-                    <article class="detail-card">
-                        <h3>Selection Summary</h3>
-                        <div id="selection-summary" class="detail-copy">
+                    <article class="detail-card collapsible-card">
+                        <button class="collapse-toggle" data-section-toggle="selection-summary" type="button" aria-expanded="false">
+                            <span class="collapse-label">[Selection Summary] ...</span>
+                        </button>
+                        <div id="selection-summary" class="detail-copy collapsed">
                             <p class="placeholder-line">Selection-specific notes will appear here.</p>
                         </div>
                     </article>
-                    <article class="detail-card">
-                        <h3>Landscape Program</h3>
-                        <div id="zones-summary" class="detail-copy">
+                    <article class="detail-card collapsible-card">
+                        <button class="collapse-toggle" data-section-toggle="zones-summary" type="button" aria-expanded="false">
+                            <span class="collapse-label">[Landscape Program] ...</span>
+                        </button>
+                        <div id="zones-summary" class="detail-copy collapsed">
                             <p class="placeholder-line">Concept zones and next data steps will appear here.</p>
                         </div>
                     </article>
                 </div>
 
-                <article class="detail-card report-card">
-                    <h3>Markdown Report Preview</h3>
-                    <div id="report-preview" class="markdown-preview">
+                <article class="detail-card report-card collapsible-card">
+                    <button class="collapse-toggle" data-section-toggle="report-preview" type="button" aria-expanded="false">
+                        <span class="collapse-label">[Markdown Report Preview] ...</span>
+                    </button>
+                    <div id="report-preview" class="markdown-preview collapsed">
                         <p class="placeholder-line">The generated markdown report will render here.</p>
                     </div>
                 </article>
@@ -319,6 +328,6 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=9"></script>
+    <script src="/static/js/app.js?v=15"></script>
 </body>
 </html>
