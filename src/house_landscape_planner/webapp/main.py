@@ -26,6 +26,7 @@ from house_landscape_planner.webapp.api import (
     SiteAssessmentResponse,
     create_assessment_from_uploads,
     deserialize_landscape_features,
+    deserialize_rooms,
     serialize_assessment,
 )
 
@@ -107,6 +108,7 @@ async def save_neo4j_parcel_features(
             database=database,
             features=deserialize_landscape_features(design.features),
             house_plan_points=design.house_plan_points,
+            rooms=deserialize_rooms(design.rooms),
         )
         assessment = create_site_assessment_from_neo4j(parcel_id, database=database)
         return serialize_assessment(assessment, parcel_name=parcel_id)

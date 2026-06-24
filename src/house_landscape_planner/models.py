@@ -96,6 +96,10 @@ class RoomSummary:
     height: float
     linear_unit: str
     notes: str
+    floor_x_ratio: float = 0.0
+    floor_y_ratio: float = 0.0
+    floor_width_ratio: float = 0.0
+    floor_height_ratio: float = 0.0
 
 
 @dataclass(slots=True)

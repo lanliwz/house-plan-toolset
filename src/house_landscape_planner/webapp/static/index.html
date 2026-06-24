@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=15">
+    <link rel="stylesheet" href="/static/css/styles.css?v=19">
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.umd.min.js"></script>
     <script>
         (function () {
@@ -231,6 +231,7 @@
                         <button class="button secondary compact-button" id="load-house-gis" type="button" disabled>Load GIS House</button>
                         <button class="button secondary compact-button" id="add-house-plan" type="button" disabled>Add House</button>
                         <button class="button ghost compact-button" id="remove-house-plan" type="button" disabled>Remove House</button>
+                        <button class="button secondary compact-button" id="add-room" type="button" disabled>Add Room</button>
                         <button class="button secondary compact-button" id="add-house-vertex" type="button" disabled>Add Vertex</button>
                         <button class="button ghost compact-button" id="remove-house-vertex" type="button" disabled>Remove Vertex</button>
                         <button class="button secondary compact-button" id="save-features" type="button" disabled>Save</button>
@@ -242,6 +243,9 @@
                     <button class="view-toggle-button active" id="view-parcel" type="button">Parcel Detail</button>
                     <button class="view-toggle-button" id="view-garden" type="button">Garden Design</button>
                     <button class="view-toggle-button" id="view-patio" type="button">Patio Design</button>
+                    <button class="view-toggle-button" id="view-basement" type="button">Basement</button>
+                    <button class="view-toggle-button" id="view-first-floor" type="button">First Floor</button>
+                    <button class="view-toggle-button" id="view-second-floor" type="button">Second Floor</button>
                 </div>
 
                 <div class="view-stack">
@@ -260,6 +264,24 @@
                     <div class="view-panel" id="patio-view-panel">
                         <div class="detail-canvas" id="patio-canvas">
                             <div class="placeholder">Patio design diagram will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="view-panel" id="basement-view-panel">
+                        <div class="detail-canvas" id="basement-canvas">
+                            <div class="placeholder">Basement floor plan will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="view-panel" id="first-floor-view-panel">
+                        <div class="detail-canvas" id="first-floor-canvas">
+                            <div class="placeholder">First floor plan will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="view-panel" id="second-floor-view-panel">
+                        <div class="detail-canvas" id="second-floor-canvas">
+                            <div class="placeholder">Second floor plan will appear here.</div>
                         </div>
                     </div>
 
@@ -328,6 +350,6 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=15"></script>
+    <script src="/static/js/app.js?v=32"></script>
 </body>
 </html>

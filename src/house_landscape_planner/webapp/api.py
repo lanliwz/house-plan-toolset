@@ -105,9 +105,27 @@ class LandscapeFeatureUpdateRequest(BaseModel):
     rotation_degrees: float | None = None
 
 
+class RoomUpdateRequest(BaseModel):
+    room_id: str
+    label: str
+    room_type: str
+    level_name: str
+    area: float
+    area_unit: str
+    width: float
+    height: float
+    linear_unit: str
+    notes: str
+    floor_x_ratio: float = 0.0
+    floor_y_ratio: float = 0.0
+    floor_width_ratio: float = 0.0
+    floor_height_ratio: float = 0.0
+
+
 class DesignSaveRequest(BaseModel):
     features: list[LandscapeFeatureUpdateRequest]
     house_plan_points: list[tuple[float, float]] = Field(default_factory=list)
+    rooms: list[RoomUpdateRequest] = Field(default_factory=list)
 
 
 class ParcelObjectResponse(BaseModel):
@@ -516,6 +534,10 @@ def build_room_objects(rooms: list[RoomSummary]) -> list[RoomObjectResponse]:
                 "height": room.height,
                 "linear_unit": room.linear_unit,
                 "notes": room.notes,
+                "floor_x_ratio": room.floor_x_ratio,
+                "floor_y_ratio": room.floor_y_ratio,
+                "floor_width_ratio": room.floor_width_ratio,
+                "floor_height_ratio": room.floor_height_ratio,
             },
         )
         for room in rooms
@@ -560,6 +582,28 @@ def deserialize_landscape_features(items: list[LandscapeFeatureUpdateRequest]) -
             height_ratio=item.height_ratio,
             visual_kind=item.visual_kind,
             rotation_degrees=item.rotation_degrees,
+        )
+        for item in items
+    ]
+
+
+def deserialize_rooms(items: list[RoomUpdateRequest]) -> list[RoomSummary]:
+    return [
+        RoomSummary(
+            room_id=item.room_id,
+            label=item.label,
+            room_type=item.room_type,
+            level_name=item.level_name,
+            area=item.area,
+            area_unit=item.area_unit,
+            width=item.width,
+            height=item.height,
+            linear_unit=item.linear_unit,
+            notes=item.notes,
+            floor_x_ratio=item.floor_x_ratio,
+            floor_y_ratio=item.floor_y_ratio,
+            floor_width_ratio=item.floor_width_ratio,
+            floor_height_ratio=item.floor_height_ratio,
         )
         for item in items
     ]

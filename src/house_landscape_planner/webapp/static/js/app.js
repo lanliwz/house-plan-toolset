@@ -8,6 +8,7 @@ const state = {
     detailZoom: 1,
     gardenInteraction: null,
     housePlanInteraction: null,
+    floorPlanInteraction: null,
     persistenceMode: "session",
     currentNeo4jParcelId: null,
     currentNeo4jDatabase: null,
@@ -16,6 +17,11 @@ const state = {
 const DETAIL_ZOOM_MIN = 0.5;
 const DETAIL_ZOOM_MAX = 10;
 const DETAIL_ZOOM_STEP = 0.1;
+const FLOOR_VIEW_CONFIGS = [
+    { key: "basement", label: "Basement", matchers: ["basement", "lower level", "cellar"] },
+    { key: "first-floor", label: "First Floor", matchers: ["first floor", "1st floor", "main floor", "main level", "ground floor"] },
+    { key: "second-floor", label: "Second Floor", matchers: ["second floor", "2nd floor", "upper level", "upper floor"] },
+];
 
 document.addEventListener("DOMContentLoaded", () => {
     setupTheme();
@@ -28,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupZoomControls();
     setupGardenEditing();
     setupHousePlanEditing();
+    setupFloorPlanEditing();
     loadNeo4jParcelOptions();
 });
 
@@ -147,6 +154,7 @@ function setupForm() {
         state.detailZoom = 1;
         state.gardenInteraction = null;
         state.housePlanInteraction = null;
+        state.floorPlanInteraction = null;
         state.persistenceMode = "session";
         state.currentNeo4jParcelId = null;
         state.currentNeo4jDatabase = null;
@@ -163,6 +171,7 @@ function setupActions() {
     document.getElementById("load-house-gis").addEventListener("click", loadHouseFootprintFromGis);
     document.getElementById("add-house-plan").addEventListener("click", addHousePlan);
     document.getElementById("remove-house-plan").addEventListener("click", removeHousePlan);
+    document.getElementById("add-room").addEventListener("click", addFloorRoom);
     document.getElementById("add-house-vertex").addEventListener("click", addHousePlanVertex);
     document.getElementById("remove-house-vertex").addEventListener("click", removeHousePlanVertex);
     document.getElementById("save-features").addEventListener("click", saveFeatures);
@@ -180,6 +189,18 @@ function setupViewToggle() {
     });
     document.getElementById("view-patio").addEventListener("click", () => {
         state.activeView = "patio";
+        renderActiveView();
+    });
+    document.getElementById("view-basement").addEventListener("click", () => {
+        state.activeView = "basement";
+        renderActiveView();
+    });
+    document.getElementById("view-first-floor").addEventListener("click", () => {
+        state.activeView = "first-floor";
+        renderActiveView();
+    });
+    document.getElementById("view-second-floor").addEventListener("click", () => {
+        state.activeView = "second-floor";
         renderActiveView();
     });
     renderActiveView();
@@ -302,6 +323,69 @@ function setupHousePlanEditing() {
     window.addEventListener("pointercancel", stopHousePlanInteraction);
 }
 
+function setupFloorPlanEditing() {
+    ["basement-canvas", "first-floor-canvas", "second-floor-canvas"].forEach((canvasId) => {
+        const canvas = document.getElementById(canvasId);
+        canvas.addEventListener("pointerdown", (event) => {
+            const target = event.target.closest("[data-kind='room'], [data-floor-action]");
+            if (!target || !state.assessment) {
+                return;
+            }
+
+            const roomId = target.dataset.id || target.dataset.roomId;
+            const room = state.assessment.objects.rooms.find((item) => item.id === roomId);
+            if (!room) {
+                return;
+            }
+
+            const levelKey = mapLevelNameToView(room.properties.level_name);
+            state.selectedKind = "room";
+            state.selectedId = room.id;
+            state.activeView = levelKey;
+
+            const action = target.dataset.floorAction;
+            if (!action) {
+                renderSelection();
+                return;
+            }
+
+            const svg = canvas.querySelector("svg");
+            if (!svg) {
+                renderSelection();
+                return;
+            }
+
+            const shellBox = buildFloorShellBox(state.assessment.house_plan_points || []);
+            const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
+            state.floorPlanInteraction = {
+                roomId: room.id,
+                levelKey,
+                mode: action,
+                pointerId: event.pointerId,
+                startPointer: pointer,
+                startLayout: {
+                    x: Number(room.properties.floor_x_ratio || 0.1),
+                    y: Number(room.properties.floor_y_ratio || 0.1),
+                    width: Number(room.properties.floor_width_ratio || 0.3),
+                    height: Number(room.properties.floor_height_ratio || 0.2),
+                },
+                shellBox,
+            };
+
+            if (typeof target.setPointerCapture === "function") {
+                target.setPointerCapture(event.pointerId);
+            }
+
+            event.preventDefault();
+            renderSelection();
+        });
+    });
+
+    window.addEventListener("pointermove", handleFloorPlanPointerMove);
+    window.addEventListener("pointerup", stopFloorPlanInteraction);
+    window.addEventListener("pointercancel", stopFloorPlanInteraction);
+}
+
 function setupZoomControls() {
     const zoomSlider = document.getElementById("zoom-slider");
 
@@ -310,7 +394,7 @@ function setupZoomControls() {
     document.getElementById("zoom-reset").addEventListener("click", () => setDetailZoom(1));
     zoomSlider.addEventListener("input", () => setDetailZoom(Number(zoomSlider.value)));
 
-    ["detail-canvas", "garden-canvas", "patio-canvas"].forEach((canvasId) => {
+    ["detail-canvas", "garden-canvas", "patio-canvas", "basement-canvas", "first-floor-canvas", "second-floor-canvas"].forEach((canvasId) => {
         document.getElementById(canvasId).addEventListener("wheel", (event) => {
             if (!event.ctrlKey && !event.metaKey) {
                 return;
@@ -420,6 +504,7 @@ async function loadSelectedNeo4jParcel() {
 
 function applyAssessment(payload) {
     ensureHousePlanModel(payload);
+    ensureFloorPlanModel(payload);
     state.assessment = payload;
     state.persistenceMode = payload.persistence_mode || "session";
     state.selectedKind = "parcel";
@@ -427,6 +512,7 @@ function applyAssessment(payload) {
     state.activeView = "parcel";
     state.reportMarkdown = payload.report_markdown;
     state.detailZoom = 1;
+    state.floorPlanInteraction = null;
     document.getElementById("download-report").disabled = false;
 
     renderCatalog();
@@ -445,6 +531,137 @@ function ensureHousePlanModel(payload) {
         payload.house_plan_points = [];
     }
     syncHousePlanObjects(payload);
+}
+
+function ensureFloorPlanModel(payload) {
+    if (!payload.objects) {
+        payload.objects = {};
+    }
+    if (!Array.isArray(payload.objects.rooms)) {
+        payload.objects.rooms = [];
+    }
+
+    payload.objects.rooms.forEach((room) => normalizeRoomFloorAssignment(room));
+    payload.objects.rooms = mergeGeneratedFloorRooms(payload, payload.objects.rooms);
+    payload.objects.rooms.forEach((room, index) => {
+        ensureRoomFloorLayout(payload, room, index);
+    });
+}
+
+function normalizeRoomFloorAssignment(room) {
+    const roomType = String(room?.properties?.room_type || "").trim().toLowerCase();
+    if (roomType !== "garage") {
+        return;
+    }
+    room.properties.level_name = "First Floor";
+    if (room.subtitle) {
+        room.subtitle = room.subtitle.replace(/^[^|]+/, "First Floor");
+    }
+}
+
+function mergeGeneratedFloorRooms(payload, rooms) {
+    const baseRooms = rooms.filter((room) => !room.properties?.generated_floor_room);
+    const byLevel = new Map();
+    baseRooms.forEach((room) => {
+        const levelKey = mapLevelNameToView(room.properties.level_name);
+        if (!byLevel.has(levelKey)) {
+            byLevel.set(levelKey, []);
+        }
+        byLevel.get(levelKey).push(room);
+    });
+
+    const generated = [];
+    FLOOR_VIEW_CONFIGS.forEach((config) => {
+        if ((byLevel.get(config.key) || []).length) {
+            return;
+        }
+        buildGeneratedRoomsForLevel(payload, config.key).forEach((room) => generated.push(room));
+    });
+
+    const firstFloorRooms = byLevel.get("first-floor") || [];
+    const hasGarage = firstFloorRooms.some((room) => String(room.properties.room_type || "").toLowerCase() === "garage");
+    if (firstFloorRooms.length && !hasGarage) {
+        const garageRoom = buildGeneratedRoomsForLevel(payload, "first-floor")
+            .find((room) => String(room.properties.room_type || "").toLowerCase() === "garage");
+        if (garageRoom) {
+            generated.push(garageRoom);
+        }
+    }
+
+    return [...baseRooms, ...generated];
+}
+
+function buildGeneratedRoomsForLevel(payload, levelKey) {
+    const levelLabel = getFloorLevelLabel(levelKey);
+    const area = Number(payload.objects.housePlan?.properties?.area || payload.metrics?.area || 0);
+    const areaUnit = payload.objects.housePlan?.properties?.area_unit || "sq ft";
+    const linearUnit = payload.objects.housePlan?.properties?.linear_unit || payload.metrics?.linear_unit || "feet";
+    const houseWidth = Number(payload.objects.housePlan?.properties?.width || 0);
+    const houseHeight = Number(payload.objects.housePlan?.properties?.height || 0);
+    const templates = {
+        basement: [
+            ["basement-rec", "Recreation Room", "recreation", 0.44, 0.06, 0.08, 0.58, 0.50],
+            ["basement-storage", "Storage", "storage", 0.20, 0.67, 0.08, 0.24, 0.26],
+            ["basement-mech", "Mechanical", "mechanical", 0.14, 0.67, 0.38, 0.24, 0.20],
+            ["basement-laundry", "Laundry", "laundry", 0.12, 0.67, 0.64, 0.24, 0.18],
+        ],
+        "first-floor": [
+            ["first-living", "Living Room", "living_room", 0.18, 0.08, 0.08, 0.28, 0.24],
+            ["first-kitchen", "Kitchen", "kitchen", 0.14, 0.44, 0.08, 0.20, 0.16],
+            ["first-dining", "Dining", "dining", 0.12, 0.44, 0.30, 0.20, 0.16],
+            ["first-bath", "Bath", "bathroom", 0.06, 0.08, 0.38, 0.12, 0.12],
+            ["first-garage", "Double Car Garage", "garage", 0.34, 0.18, 0.60, 0.64, 0.24],
+        ],
+        "second-floor": [
+            ["second-bed-1", "Bedroom 2", "bedroom", 0.28, 0.07, 0.08, 0.34, 0.28],
+            ["second-bed-2", "Bedroom 3", "bedroom", 0.28, 0.07, 0.44, 0.34, 0.28],
+            ["second-bath", "Bath", "bathroom", 0.12, 0.46, 0.08, 0.18, 0.18],
+            ["second-study", "Study", "office", 0.16, 0.46, 0.34, 0.18, 0.18],
+            ["second-primary", "Primary Suite", "bedroom", 0.30, 0.67, 0.08, 0.22, 0.54],
+        ],
+    };
+
+    return (templates[levelKey] || []).map(([suffix, label, roomType, share, xRatio, yRatio, widthRatio, heightRatio], index) => ({
+        kind: "room",
+        id: `generated-${suffix}-${index + 1}`,
+        label,
+        subtitle: `${levelLabel} | ${roomType.replaceAll("_", " ")}`,
+        description: `Blueprint room placeholder for the ${levelLabel.toLowerCase()} plan.`,
+        properties: {
+            room_id: `generated-${suffix}-${index + 1}`,
+            room_type: roomType,
+            level_name: levelLabel,
+            area: roundValue(area * share, 2),
+            area_unit: areaUnit,
+            width: roundValue(houseWidth * widthRatio, 2),
+            height: roundValue(houseHeight * heightRatio, 2),
+            linear_unit: linearUnit,
+            notes: `Generated ${levelLabel.toLowerCase()} room placeholder.`,
+            generated_floor_room: true,
+            floor_x_ratio: xRatio,
+            floor_y_ratio: yRatio,
+            floor_width_ratio: widthRatio,
+            floor_height_ratio: heightRatio,
+        },
+    }));
+}
+
+function ensureRoomFloorLayout(payload, room) {
+    const levelKey = mapLevelNameToView(room.properties.level_name);
+    const roomsForLevel = payload.objects.rooms.filter((item) => mapLevelNameToView(item.properties.level_name) === levelKey);
+    const roomIndex = roomsForLevel.findIndex((item) => item.id === room.id);
+    const columns = roomsForLevel.length <= 1 ? 1 : 2;
+    const rows = Math.ceil(roomsForLevel.length / columns);
+    const column = roomIndex % columns;
+    const row = Math.floor(roomIndex / columns);
+    const pad = 0.06;
+    const cellWidth = (1 - (pad * (columns + 1))) / columns;
+    const cellHeight = (1 - (pad * (rows + 1))) / rows;
+
+    room.properties.floor_x_ratio ??= roundValue(pad + (column * (cellWidth + pad)), 4);
+    room.properties.floor_y_ratio ??= roundValue(pad + (row * (cellHeight + pad)), 4);
+    room.properties.floor_width_ratio ??= roundValue(cellWidth, 4);
+    room.properties.floor_height_ratio ??= roundValue(cellHeight, 4);
 }
 
 function syncHousePlanObjects(payload) {
@@ -589,6 +806,9 @@ function setSelection(kind, id) {
     state.selectedId = id;
     if (kind === "feature") {
         state.activeView = isPatioFeature(id) ? "patio" : "garden";
+    } else if (kind === "room") {
+        const room = state.assessment?.objects.rooms.find((item) => item.id === id) || null;
+        state.activeView = room ? mapLevelNameToView(room.properties.level_name) : "first-floor";
     } else {
         state.activeView = "parcel";
     }
@@ -613,12 +833,21 @@ function renderActiveView() {
     const isParcel = state.activeView === "parcel";
     const isGarden = state.activeView === "garden";
     const isPatio = state.activeView === "patio";
+    const isBasement = state.activeView === "basement";
+    const isFirstFloor = state.activeView === "first-floor";
+    const isSecondFloor = state.activeView === "second-floor";
     document.getElementById("view-parcel").classList.toggle("active", isParcel);
     document.getElementById("view-garden").classList.toggle("active", isGarden);
     document.getElementById("view-patio").classList.toggle("active", isPatio);
+    document.getElementById("view-basement").classList.toggle("active", isBasement);
+    document.getElementById("view-first-floor").classList.toggle("active", isFirstFloor);
+    document.getElementById("view-second-floor").classList.toggle("active", isSecondFloor);
     document.getElementById("parcel-view-panel").classList.toggle("active", isParcel);
     document.getElementById("garden-view-panel").classList.toggle("active", isGarden);
     document.getElementById("patio-view-panel").classList.toggle("active", isPatio);
+    document.getElementById("basement-view-panel").classList.toggle("active", isBasement);
+    document.getElementById("first-floor-view-panel").classList.toggle("active", isFirstFloor);
+    document.getElementById("second-floor-view-panel").classList.toggle("active", isSecondFloor);
     updateZoomControls();
 }
 
@@ -633,11 +862,17 @@ function renderInteractiveDiagram() {
     const parcelCanvas = document.getElementById("detail-canvas");
     const gardenCanvas = document.getElementById("garden-canvas");
     const patioCanvas = document.getElementById("patio-canvas");
+    const basementCanvas = document.getElementById("basement-canvas");
+    const firstFloorCanvas = document.getElementById("first-floor-canvas");
+    const secondFloorCanvas = document.getElementById("second-floor-canvas");
     parcelCanvas.innerHTML = buildParcelSvg(state.assessment);
     gardenCanvas.innerHTML = buildGardenSvg(state.assessment);
     patioCanvas.innerHTML = buildPatioSvg(state.assessment);
+    basementCanvas.innerHTML = buildFloorPlanSvg(state.assessment, "basement");
+    firstFloorCanvas.innerHTML = buildFloorPlanSvg(state.assessment, "first-floor");
+    secondFloorCanvas.innerHTML = buildFloorPlanSvg(state.assessment, "second-floor");
 
-    [parcelCanvas, gardenCanvas, patioCanvas].forEach((canvas) => {
+    [parcelCanvas, gardenCanvas, patioCanvas, basementCanvas, firstFloorCanvas, secondFloorCanvas].forEach((canvas) => {
         canvas.querySelectorAll("[data-kind][data-id]").forEach((element) => {
             element.addEventListener("click", () => {
                 setSelection(element.dataset.kind, element.dataset.id);
@@ -715,7 +950,7 @@ function buildGardenSvg(data) {
         return '<div class="placeholder">Garden design diagram will appear here.</div>';
     }
 
-    const { width, height, vertexPoints, polygonPoints } = buildDiagramGeometry(points);
+    const { width, height, vertexPoints, polygonPoints, project } = buildDiagramGeometry(points);
     const left = Math.min(...vertexPoints.map((point) => point.x));
     const right = Math.max(...vertexPoints.map((point) => point.x));
     const top = Math.min(...vertexPoints.map((point) => point.y));
@@ -723,6 +958,7 @@ function buildGardenSvg(data) {
     const boxWidth = Math.max(right - left, 1);
     const boxHeight = Math.max(bottom - top, 1);
     const parcelRotation = getParcelRotation(vertexPoints);
+    const housePlanSvg = buildHousePlanSvg(data, project);
     const featureShapes = data.objects.features.map((feature) => (
         buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation)
     )).join("");
@@ -735,6 +971,7 @@ function buildGardenSvg(data) {
         </defs>
         <polygon class="parcel-fill" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
         <g clip-path="url(#garden-clip)">
+            ${housePlanSvg}
             ${featureShapes}
         </g>
     `);
@@ -781,7 +1018,7 @@ function buildPatioSvg(data) {
         return '<div class="placeholder">Patio design diagram will appear here.</div>';
     }
 
-    const { width, height, vertexPoints, polygonPoints } = buildDiagramGeometry(points);
+    const { width, height, vertexPoints, polygonPoints, project } = buildDiagramGeometry(points);
     const left = Math.min(...vertexPoints.map((point) => point.x));
     const right = Math.max(...vertexPoints.map((point) => point.x));
     const top = Math.min(...vertexPoints.map((point) => point.y));
@@ -789,6 +1026,7 @@ function buildPatioSvg(data) {
     const boxWidth = Math.max(right - left, 1);
     const boxHeight = Math.max(bottom - top, 1);
     const parcelRotation = getParcelRotation(vertexPoints);
+    const housePlanSvg = buildHousePlanSvg(data, project);
     const patioFeatures = getPatioFeatures();
     const featureShapes = patioFeatures.map((feature) => (
         buildFeatureSvg(feature, left, top, boxWidth, boxHeight, parcelRotation)
@@ -802,9 +1040,150 @@ function buildPatioSvg(data) {
         </defs>
         <polygon class="parcel-fill" data-kind="parcel" data-id="parcel" points="${polygonPoints}"></polygon>
         <g clip-path="url(#patio-clip)">
+            ${housePlanSvg}
             ${featureShapes}
         </g>
     `);
+}
+
+function buildFloorPlanSvg(data, levelKey) {
+    if (!(data.house_plan_points || []).length) {
+        return '<div class="placeholder">Load or draw a house footprint to view floor plans.</div>';
+    }
+
+    const levelConfig = FLOOR_VIEW_CONFIGS.find((item) => item.key === levelKey) || FLOOR_VIEW_CONFIGS[1];
+    const allRooms = data.objects.rooms || [];
+    const levelRooms = allRooms.filter((room) => roomBelongsToFloor(room, levelKey));
+    const shellBox = buildFloorShellBox(data.house_plan_points || []);
+    const shellVertexCount = shellBox.vertexPoints.length;
+    const roomMarkup = buildFloorRoomMarkup(levelRooms, shellBox);
+    const virtualGarageMarkup = buildVirtualGarageMarkup(allRooms, shellBox, levelKey);
+    const note = levelRooms.length
+        ? `${levelRooms.length} rooms loaded | ${shellVertexCount} walls`
+        : `No rooms loaded yet | ${shellVertexCount} walls`;
+
+    return buildSvgFrame(shellBox.canvasWidth, shellBox.canvasHeight, `
+        <defs>
+            <pattern id="floor-grid-${levelKey}" width="24" height="24" patternUnits="userSpaceOnUse">
+                <path d="M 24 0 L 0 0 0 24" class="floor-grid-minor"></path>
+            </pattern>
+            <clipPath id="floor-shell-clip-${levelKey}">
+                <polygon points="${shellBox.polygonPoints}"></polygon>
+            </clipPath>
+        </defs>
+        <rect class="floor-grid-surface" width="${shellBox.canvasWidth}" height="${shellBox.canvasHeight}" fill="url(#floor-grid-${levelKey})"></rect>
+        <polygon class="floor-shell" data-kind="house" data-id="house" points="${shellBox.polygonPoints}"></polygon>
+        ${virtualGarageMarkup}
+        <g clip-path="url(#floor-shell-clip-${levelKey})">
+            ${roomMarkup}
+        </g>
+        <text class="floor-level-label zoom-stable-label" transform="${buildStableLabelTransform(84, 34)}">${escapeHtml(levelConfig.label)}</text>
+        <text class="floor-note zoom-stable-label" transform="${buildStableLabelTransform(84, 54)}">${escapeHtml(note)}</text>
+    `);
+}
+
+function buildFloorRoomMarkup(rooms, shellBox) {
+    if (!rooms.length) {
+        return "";
+    }
+
+    return rooms.map((room, index) => {
+        const x = shellBox.x + (shellBox.width * Number(room.properties.floor_x_ratio || 0.1));
+        const y = shellBox.y + (shellBox.height * Number(room.properties.floor_y_ratio || 0.1));
+        const roomWidth = shellBox.width * Number(room.properties.floor_width_ratio || 0.3);
+        const roomHeight = shellBox.height * Number(room.properties.floor_height_ratio || 0.2);
+        const selected = state.selectedKind === "room" && state.selectedId === room.id ? "selected" : "";
+        const label = room.label.length > 18 ? `${room.label.slice(0, 18)}...` : room.label;
+        const controls = selected ? buildFloorRoomControls(room.id, x, y, roomWidth, roomHeight) : "";
+        return `
+            <rect class="floor-room ${selected}" data-kind="room" data-id="${escapeHtml(room.id)}" data-floor-action="move-room"
+                x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${roomWidth.toFixed(1)}" height="${roomHeight.toFixed(1)}"></rect>
+            ${controls}
+            <text class="floor-room-label zoom-stable-label" text-anchor="middle"
+                transform="${buildStableLabelTransform(x + (roomWidth / 2), y + (roomHeight / 2))}">${escapeHtml(label)}</text>
+        `;
+    }).join("");
+}
+
+function buildVirtualGarageMarkup(allRooms, shellBox, levelKey) {
+    if (levelKey === "first-floor") {
+        return "";
+    }
+    const garageRoom = allRooms.find((room) => String(room?.properties?.room_type || "").toLowerCase() === "garage");
+    if (!garageRoom) {
+        return "";
+    }
+
+    const x = shellBox.x + (shellBox.width * Number(garageRoom.properties.floor_x_ratio || 0));
+    const y = shellBox.y + (shellBox.height * Number(garageRoom.properties.floor_y_ratio || 0));
+    const width = shellBox.width * Number(garageRoom.properties.floor_width_ratio || 0);
+    const height = shellBox.height * Number(garageRoom.properties.floor_height_ratio || 0);
+    if (width <= 0 || height <= 0) {
+        return "";
+    }
+
+    return `
+        <rect class="floor-virtual-cutout" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}"></rect>
+        <line class="floor-virtual-line" x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(x + width).toFixed(1)}" y2="${y.toFixed(1)}"></line>
+    `;
+}
+
+function buildFloorShellBox(housePoints) {
+    const canvasWidth = 920;
+    const canvasHeight = 460;
+    const margin = 48;
+    const normalized = normalizePolygonPoints(housePoints);
+    const centroid = getPolygonCentroid(normalized);
+    let rotatedPoints = rotateSourcePoints(normalized, -getLongestEdgeAngle(normalized), centroid);
+    let bounds = getSourceBounds(rotatedPoints);
+
+    if ((bounds.maxX - bounds.minX) > (bounds.maxY - bounds.minY)) {
+        rotatedPoints = rotateSourcePoints(rotatedPoints, 90, centroid);
+        bounds = getSourceBounds(rotatedPoints);
+    }
+
+    const xs = rotatedPoints.map((point) => point[0]);
+    const ys = rotatedPoints.map((point) => point[1]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const spanX = Math.max(maxX - minX, 1);
+    const spanY = Math.max(maxY - minY, 1);
+    const scale = Math.min((canvasWidth - margin * 2) / spanX, (canvasHeight - margin * 2) / spanY);
+
+    const project = (point) => ({
+        x: margin + (point[0] - minX) * scale,
+        y: canvasHeight - margin - (point[1] - minY) * scale,
+    });
+
+    const vertexPoints = rotatedPoints.map(project);
+    const polygonPoints = vertexPoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+    const projectedXs = vertexPoints.map((point) => point.x);
+    const projectedYs = vertexPoints.map((point) => point.y);
+    const boxMinX = Math.min(...projectedXs);
+    const boxMaxX = Math.max(...projectedXs);
+    const boxMinY = Math.min(...projectedYs);
+    const boxMaxY = Math.max(...projectedYs);
+
+    return {
+        canvasWidth,
+        canvasHeight,
+        x: boxMinX,
+        y: boxMinY,
+        width: boxMaxX - boxMinX,
+        height: boxMaxY - boxMinY,
+        vertexPoints,
+        polygonPoints,
+    };
+}
+
+function buildFloorRoomControls(roomId, x, y, width, height) {
+    return `
+        <rect class="floor-room-outline" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}"></rect>
+        <circle class="floor-room-handle" data-kind="room" data-id="${escapeHtml(roomId)}" data-floor-action="resize-room"
+            cx="${(x + width).toFixed(1)}" cy="${(y + height).toFixed(1)}" r="${buildStableCircleRadius(6)}"></circle>
+    `;
 }
 
 function buildDiagramGeometry(points) {
@@ -896,6 +1275,65 @@ function buildStableLabelTransform(x, y) {
 function buildStableCircleRadius(radius) {
     const safeZoom = state.detailZoom || 1;
     return (radius / safeZoom).toFixed(3);
+}
+
+function mapLevelNameToView(levelName) {
+    const normalized = String(levelName || "").trim().toLowerCase();
+    const match = FLOOR_VIEW_CONFIGS.find((config) => config.matchers.some((value) => normalized.includes(value)));
+    return match ? match.key : "first-floor";
+}
+
+function roomBelongsToFloor(room, levelKey) {
+    const roomType = String(room?.properties?.room_type || "").trim().toLowerCase();
+    if (roomType === "garage") {
+        return levelKey === "first-floor";
+    }
+    return mapLevelNameToView(room?.properties?.level_name) === levelKey;
+}
+
+function getFloorLevelLabel(levelKey) {
+    return (FLOOR_VIEW_CONFIGS.find((item) => item.key === levelKey)?.label) || "First Floor";
+}
+
+function getLongestEdgeAngle(points) {
+    if (points.length < 2) {
+        return 0;
+    }
+
+    let bestAngle = 0;
+    let bestLength = 0;
+    for (let index = 0; index < points.length; index += 1) {
+        const start = points[index];
+        const end = points[(index + 1) % points.length];
+        const dx = end[0] - start[0];
+        const dy = end[1] - start[1];
+        const length = Math.hypot(dx, dy);
+        if (length <= bestLength) {
+            continue;
+        }
+        bestLength = length;
+        bestAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+    }
+    return bestAngle;
+}
+
+function rotateSourcePoints(points, degrees, center) {
+    return points.map((point) => {
+        const rotated = rotatePoint(point[0], point[1], center[0], center[1], degrees);
+        return [roundValue(rotated.x, 6), roundValue(rotated.y, 6)];
+    });
+}
+
+function getPolygonCentroid(points) {
+    if (!points.length) {
+        return [0, 0];
+    }
+    const sum = points.reduce((accumulator, point) => {
+        accumulator[0] += point[0];
+        accumulator[1] += point[1];
+        return accumulator;
+    }, [0, 0]);
+    return [sum[0] / points.length, sum[1] / points.length];
 }
 
 function buildFeatureControls(featureId, centerX, centerY, width, height, rotation, cornerRadius) {
@@ -1026,6 +1464,57 @@ function stopGardenInteraction(event) {
     state.gardenInteraction = null;
 }
 
+function handleFloorPlanPointerMove(event) {
+    if (!state.floorPlanInteraction || !state.assessment) {
+        return;
+    }
+    if (event.pointerId !== state.floorPlanInteraction.pointerId) {
+        return;
+    }
+
+    const viewCanvasId = `${state.floorPlanInteraction.levelKey}-canvas`;
+    const svg = document.getElementById(viewCanvasId)?.querySelector("svg");
+    if (!svg) {
+        return;
+    }
+
+    const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
+    const room = state.assessment.objects.rooms.find((item) => item.id === state.floorPlanInteraction.roomId);
+    if (!room) {
+        return;
+    }
+
+    const deltaX = (pointer.x - state.floorPlanInteraction.startPointer.x) / state.floorPlanInteraction.shellBox.width;
+    const deltaY = (pointer.y - state.floorPlanInteraction.startPointer.y) / state.floorPlanInteraction.shellBox.height;
+    let nextX = state.floorPlanInteraction.startLayout.x;
+    let nextY = state.floorPlanInteraction.startLayout.y;
+    let nextWidth = state.floorPlanInteraction.startLayout.width;
+    let nextHeight = state.floorPlanInteraction.startLayout.height;
+
+    if (state.floorPlanInteraction.mode === "move-room") {
+        nextX = clamp(nextX + deltaX, 0.02, 0.98 - nextWidth);
+        nextY = clamp(nextY + deltaY, 0.02, 0.98 - nextHeight);
+    } else if (state.floorPlanInteraction.mode === "resize-room") {
+        nextWidth = clamp(nextWidth + deltaX, 0.12, 0.96 - nextX);
+        nextHeight = clamp(nextHeight + deltaY, 0.12, 0.96 - nextY);
+    }
+
+    room.properties.floor_x_ratio = roundValue(nextX, 4);
+    room.properties.floor_y_ratio = roundValue(nextY, 4);
+    room.properties.floor_width_ratio = roundValue(nextWidth, 4);
+    room.properties.floor_height_ratio = roundValue(nextHeight, 4);
+    syncRoomPhysicalProperties(room);
+
+    renderSelection();
+}
+
+function stopFloorPlanInteraction(event) {
+    if (event && state.floorPlanInteraction && event.pointerId !== state.floorPlanInteraction.pointerId) {
+        return;
+    }
+    state.floorPlanInteraction = null;
+}
+
 function handleHousePlanPointerMove(event) {
     if (!state.housePlanInteraction || !state.assessment) {
         return;
@@ -1134,7 +1623,15 @@ function normalizePolygonPoints(points) {
     if (!Array.isArray(points)) {
         return [];
     }
-    return points.slice(0, -1).map((point) => [Number(point[0]), Number(point[1])]);
+    const normalized = points.map((point) => [Number(point[0]), Number(point[1])]);
+    if (normalized.length >= 2) {
+        const first = normalized[0];
+        const last = normalized[normalized.length - 1];
+        if (first[0] === last[0] && first[1] === last[1]) {
+            return normalized.slice(0, -1);
+        }
+    }
+    return normalized;
 }
 
 function getSourceBounds(points) {
@@ -1424,6 +1921,8 @@ function buildSelectionSummary(item) {
             <ul class="selection-list">
                 <li>Type: ${escapeHtml(item.properties.room_type)}</li>
                 <li>Level: ${escapeHtml(item.properties.level_name)}</li>
+                <li>Width: ${escapeHtml(formatNumber(item.properties.width))} ${escapeHtml(item.properties.linear_unit)}</li>
+                <li>Height: ${escapeHtml(formatNumber(item.properties.height))} ${escapeHtml(item.properties.linear_unit)}</li>
                 <li>Area: ${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</li>
             </ul>
         `;
@@ -1601,6 +2100,7 @@ function updateFeatureActions() {
     const loadHouseGisButton = document.getElementById("load-house-gis");
     const addHousePlanButton = document.getElementById("add-house-plan");
     const removeHousePlanButton = document.getElementById("remove-house-plan");
+    const addRoomButton = document.getElementById("add-room");
     const addHouseVertexButton = document.getElementById("add-house-vertex");
     const removeHouseVertexButton = document.getElementById("remove-house-vertex");
     const saveButton = document.getElementById("save-features");
@@ -1609,15 +2109,98 @@ function updateFeatureActions() {
     const hasHousePlan = hasAssessment && Boolean(state.assessment.objects.housePlan);
     const isHouseVertexSelected = hasAssessment && state.selectedKind === "house-vertex" && Boolean(getSelectedObject());
     const isFeatureSelected = hasAssessment && state.selectedKind === "feature" && Boolean(getSelectedObject());
+    const isFloorView = ["basement", "first-floor", "second-floor"].includes(state.activeView);
 
     const isNeo4jBacked = state.persistenceMode === "neo4j" && Boolean(state.currentNeo4jParcelId);
     loadHouseGisButton.disabled = !isNeo4jBacked;
     addHousePlanButton.disabled = !hasAssessment || hasHousePlan;
     removeHousePlanButton.disabled = !hasHousePlan;
+    addRoomButton.disabled = !hasAssessment || !hasHousePlan || !isFloorView;
     addHouseVertexButton.disabled = !hasHousePlan;
     removeHouseVertexButton.disabled = !isHouseVertexSelected || state.assessment.house_plan_points.length <= 3;
     saveButton.disabled = !hasAssessment || !isNeo4jBacked;
     removeButton.disabled = !isFeatureSelected || !isNeo4jBacked;
+}
+
+function addFloorRoom() {
+    if (!state.assessment || !state.assessment.objects.housePlan) {
+        return;
+    }
+    if (!["basement", "first-floor", "second-floor"].includes(state.activeView)) {
+        updateStatus("Switch to Basement, First Floor, or Second Floor to add a room.", true);
+        return;
+    }
+
+    const levelKey = state.activeView;
+    const levelLabel = getFloorLevelLabel(levelKey);
+    const existingRooms = state.assessment.objects.rooms.filter((room) => mapLevelNameToView(room.properties.level_name) === levelKey);
+    const roomNumber = existingRooms.length + 1;
+    const houseWidth = Number(state.assessment.objects.housePlan.properties.width || 0);
+    const houseHeight = Number(state.assessment.objects.housePlan.properties.height || 0);
+    const layout = getNextFloorRoomLayout(existingRooms);
+    const newRoom = {
+        kind: "room",
+        id: `custom-${levelKey}-room-${Date.now()}`,
+        label: `Room ${roomNumber}`,
+        subtitle: `${levelLabel} | custom room`,
+        description: `Editable room added to the ${levelLabel.toLowerCase()} blueprint.`,
+        properties: {
+            room_id: `custom-${levelKey}-room-${roomNumber}`,
+            room_type: "room",
+            level_name: levelLabel,
+            area: roundValue(Number(state.assessment.objects.housePlan.properties.area || 0) * layout.width * layout.height, 2),
+            area_unit: state.assessment.objects.housePlan.properties.area_unit || "sq ft",
+            width: roundValue(houseWidth * layout.width, 2),
+            height: roundValue(houseHeight * layout.height, 2),
+            linear_unit: state.assessment.objects.housePlan.properties.linear_unit || "feet",
+            notes: `Custom room added on ${levelLabel.toLowerCase()}.`,
+            floor_x_ratio: layout.x,
+            floor_y_ratio: layout.y,
+            floor_width_ratio: layout.width,
+            floor_height_ratio: layout.height,
+        },
+    };
+
+    syncRoomPhysicalProperties(newRoom);
+    state.assessment.objects.rooms.push(newRoom);
+    state.selectedKind = "room";
+    state.selectedId = newRoom.id;
+    renderCatalog();
+    renderSelection();
+}
+
+function getNextFloorRoomLayout(existingRooms) {
+    const presets = [
+        { x: 0.08, y: 0.08, width: 0.22, height: 0.18 },
+        { x: 0.34, y: 0.08, width: 0.22, height: 0.18 },
+        { x: 0.60, y: 0.08, width: 0.22, height: 0.18 },
+        { x: 0.08, y: 0.32, width: 0.22, height: 0.18 },
+        { x: 0.34, y: 0.32, width: 0.22, height: 0.18 },
+        { x: 0.60, y: 0.32, width: 0.22, height: 0.18 },
+        { x: 0.08, y: 0.56, width: 0.22, height: 0.18 },
+        { x: 0.34, y: 0.56, width: 0.22, height: 0.18 },
+        { x: 0.60, y: 0.56, width: 0.22, height: 0.18 },
+    ];
+    const used = new Set(existingRooms.map((room) => `${room.properties.floor_x_ratio}|${room.properties.floor_y_ratio}`));
+    const preset = presets.find((item) => !used.has(`${item.x}|${item.y}`));
+    return preset || { x: 0.12, y: 0.12, width: 0.2, height: 0.16 };
+}
+
+function syncRoomPhysicalProperties(room) {
+    if (!state.assessment?.objects?.housePlan) {
+        return;
+    }
+
+    const houseProperties = state.assessment.objects.housePlan.properties || {};
+    const houseWidth = Number(houseProperties.width || 0);
+    const houseHeight = Number(houseProperties.height || 0);
+    const houseArea = Number(houseProperties.area || 0);
+    const widthRatio = Number(room.properties.floor_width_ratio || 0);
+    const heightRatio = Number(room.properties.floor_height_ratio || 0);
+
+    room.properties.width = roundValue(houseWidth * widthRatio, 2);
+    room.properties.height = roundValue(houseHeight * heightRatio, 2);
+    room.properties.area = roundValue(houseArea * widthRatio * heightRatio, 2);
 }
 
 function metricCard(label, value) {
@@ -1674,6 +2257,9 @@ function resetResults() {
     document.getElementById("detail-canvas").innerHTML = '<div class="placeholder">Interactive parcel diagram will appear here.</div>';
     document.getElementById("garden-canvas").innerHTML = '<div class="placeholder">Garden design diagram will appear here.</div>';
     document.getElementById("patio-canvas").innerHTML = '<div class="placeholder">Patio design diagram will appear here.</div>';
+    document.getElementById("basement-canvas").innerHTML = '<div class="placeholder">Basement floor plan will appear here.</div>';
+    document.getElementById("first-floor-canvas").innerHTML = '<div class="placeholder">First floor plan will appear here.</div>';
+    document.getElementById("second-floor-canvas").innerHTML = '<div class="placeholder">Second floor plan will appear here.</div>';
     document.getElementById("selection-summary").innerHTML = '<p class="placeholder-line">Selection-specific notes will appear here.</p>';
     document.getElementById("zones-summary").innerHTML = '<p class="placeholder-line">Concept zones and next data steps will appear here.</p>';
     document.getElementById("report-preview").innerHTML = '<p class="placeholder-line">The generated markdown report will render here.</p>';
@@ -1752,6 +2338,22 @@ async function saveFeatures() {
                 body: JSON.stringify({
                     features: state.assessment.landscape_features,
                     house_plan_points: state.assessment.house_plan_points || [],
+                    rooms: (state.assessment.objects.rooms || []).map((room) => ({
+                        room_id: room.properties.room_id,
+                        label: room.label,
+                        room_type: room.properties.room_type,
+                        level_name: room.properties.level_name,
+                        area: room.properties.area,
+                        area_unit: room.properties.area_unit,
+                        width: room.properties.width,
+                        height: room.properties.height,
+                        linear_unit: room.properties.linear_unit,
+                        notes: room.properties.notes,
+                        floor_x_ratio: room.properties.floor_x_ratio || 0,
+                        floor_y_ratio: room.properties.floor_y_ratio || 0,
+                        floor_width_ratio: room.properties.floor_width_ratio || 0,
+                        floor_height_ratio: room.properties.floor_height_ratio || 0,
+                    })),
                 }),
             },
         );
@@ -1761,7 +2363,7 @@ async function saveFeatures() {
         }
         applyAssessment(payload);
         updateStatus(
-            `Saved ${payload.landscape_features.length} features and ${payload.house_plan_points.length} house footprint points to Neo4j.`,
+            `Saved ${payload.landscape_features.length} features, ${payload.objects.rooms.length} rooms, and ${payload.house_plan_points.length} house footprint points to Neo4j.`,
             false,
         );
     } catch (error) {

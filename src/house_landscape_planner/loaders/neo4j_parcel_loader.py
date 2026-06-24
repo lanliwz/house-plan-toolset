@@ -428,6 +428,7 @@ def save_feature_layout_to_neo4j(
     database: str = DEFAULT_WEB_DATABASE,
     features: list[LandscapeFeature],
     house_plan_points: list[tuple[float, float]] | None = None,
+    rooms: list[RoomSummary] | None = None,
 ) -> None:
     config = get_neo4j_config(database=database)
     driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
@@ -454,6 +455,8 @@ def save_feature_layout_to_neo4j(
             ).single()
             if result is not None:
                 sync_house_graph(session, parcel_id=parcel_id, house_plan_points=house_plan_points)
+                if rooms is not None:
+                    sync_rooms(session, parcel_id=parcel_id, rooms=rooms)
                 sync_landscape_graph(session, parcel_id=parcel_id, features=features)
     finally:
         driver.close()
@@ -1024,6 +1027,10 @@ def build_default_room_summaries(house_id: str, house_plan_points: list[tuple[fl
                 height=room_height,
                 linear_unit=metrics.linear_unit,
                 notes=notes,
+                floor_x_ratio=0.0,
+                floor_y_ratio=0.0,
+                floor_width_ratio=0.0,
+                floor_height_ratio=0.0,
             )
         )
     return rooms
@@ -1069,7 +1076,87 @@ def hydrate_room_summary(props: dict[str, Any]) -> RoomSummary | None:
         height=float(props.get("height") or 0.0),
         linear_unit=str(props.get("linearUnit") or "feet"),
         notes=str(props.get("notes") or ""),
+        floor_x_ratio=float(props.get("floorXRatio") or 0.0),
+        floor_y_ratio=float(props.get("floorYRatio") or 0.0),
+        floor_width_ratio=float(props.get("floorWidthRatio") or 0.0),
+        floor_height_ratio=float(props.get("floorHeightRatio") or 0.0),
     )
+
+
+def sync_rooms(session, *, parcel_id: str, rooms: list[RoomSummary]) -> None:
+    house_row = session.run(
+        """
+        MATCH (:Parcel:Resource {parcelId: $parcel_id})-[:HAS_HOUSE]->(house:House)
+        RETURN house.houseId AS house_id
+        """,
+        parcel_id=parcel_id,
+    ).single()
+    if house_row is None or not house_row.get("house_id"):
+        return
+
+    house_id = str(house_row["house_id"])
+    existing_rows = session.run(
+        """
+        MATCH (:House {houseId: $house_id})-[:HAS_ROOM]->(room:Room)
+        RETURN room.roomId AS room_id
+        """,
+        house_id=house_id,
+    )
+    existing_ids = {str(row["room_id"]) for row in existing_rows if row.get("room_id")}
+    incoming_ids = {room.room_id for room in rooms}
+
+    for room in rooms:
+        session.run(
+            """
+            MATCH (house:House {houseId: $house_id})
+            MERGE (room:Room {roomId: $room_id})
+            SET room.rdfs__label = $label,
+                room.roomType = $room_type,
+                room.levelName = $level_name,
+                room.area = $area,
+                room.areaUnit = $area_unit,
+                room.width = $width,
+                room.height = $height,
+                room.linearUnit = $linear_unit,
+                room.notes = $notes,
+                room.floorXRatio = $floor_x_ratio,
+                room.floorYRatio = $floor_y_ratio,
+                room.floorWidthRatio = $floor_width_ratio,
+                room.floorHeightRatio = $floor_height_ratio,
+                room.uri = $room_uri
+            MERGE (house)-[:HAS_ROOM {materialized: true, rdfs__label: 'has room'}]->(room)
+            """,
+            house_id=house_id,
+            room_id=room.room_id,
+            label=room.label,
+            room_type=room.room_type,
+            level_name=room.level_name,
+            area=room.area,
+            area_unit=room.area_unit,
+            width=room.width,
+            height=room.height,
+            linear_unit=room.linear_unit,
+            notes=room.notes,
+            floor_x_ratio=room.floor_x_ratio,
+            floor_y_ratio=room.floor_y_ratio,
+            floor_width_ratio=room.floor_width_ratio,
+            floor_height_ratio=room.floor_height_ratio,
+            room_uri=f"urn:house-plan-toolset:room:{room.room_id}",
+        ).consume()
+
+    stale_ids = existing_ids - incoming_ids
+    if stale_ids:
+        session.run(
+            """
+            MATCH (:House {houseId: $house_id})-[rel:HAS_ROOM]->(room:Room)
+            WHERE room.roomId IN $room_ids
+            DELETE rel
+            WITH room
+            DETACH DELETE room
+            """,
+            house_id=house_id,
+            room_ids=list(stale_ids),
+        ).consume()
 
 
 def hydrate_utility_summary(props: dict[str, Any]) -> UtilityConnectionSummary | None:
