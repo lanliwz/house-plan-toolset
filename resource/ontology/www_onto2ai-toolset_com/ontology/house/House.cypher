@@ -21,6 +21,18 @@ CREATE CONSTRAINT BuildingFootprint_footprintId_Required IF NOT EXISTS FOR (n:`B
 // Mandatory property: roomId
 CREATE CONSTRAINT Room_roomId_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`roomId` IS NOT NULL;
 
+// Class: wall
+// Definition: A boundary element defining one side of a room or separating adjacent interior or exterior spaces.
+// URI: http://www.onto2ai-toolset.com/ontology/house/House#Wall
+
+// Class: door
+// Definition: An opening element in a wall used for passage between rooms or between interior and exterior space.
+// URI: http://www.onto2ai-toolset.com/ontology/house/House#Door
+
+// Class: window
+// Definition: An opening element in a wall used for daylight, view, or ventilation.
+// URI: http://www.onto2ai-toolset.com/ontology/house/House#Window
+
 // Class: utility connection
 // Definition: A service connection or equipment interface supporting water, power, drainage, gas, communications, or related house systems.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#UtilityConnection

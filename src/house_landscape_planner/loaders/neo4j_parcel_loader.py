@@ -62,6 +62,7 @@ LANDSCAPE_NS = "http://www.onto2ai-toolset.com/ontology/landscape/Landscape#"
 DEFAULT_WEB_DATABASE = os.getenv("NEO4J_HP62N_DB_NAME", "hp62n")
 FEATURE_LAYOUT_PROPERTY = "housePlanFeatureLayoutJson"
 HOUSE_PLAN_POINTS_PROPERTY = "housePlanPolygonJson"
+ROOM_LAYOUT_PROPERTY = "housePlanRoomLayoutJson"
 ELEVATION_SUMMARY_PROPERTY = "housePlanElevationSummaryJson"
 ELEVATION_CONTOURS_PROPERTY = "housePlanElevationContoursJson"
 HOUSE_CONSTRAINT_PATH = Path(__file__).resolve().parents[3] / "resource" / "ontology" / "www_onto2ai-toolset_com" / "ontology" / "house" / "House.cypher"
@@ -362,6 +363,7 @@ def create_site_assessment_from_neo4j(
     house_plan_points = house_graph["house_plan_points"]
     if not house_plan_points:
         house_plan_points = load_saved_house_plan_points(parcel_props.get(HOUSE_PLAN_POINTS_PROPERTY))
+    saved_rooms = load_saved_room_layouts(parcel_props.get(ROOM_LAYOUT_PROPERTY))
     elevation_summary = load_saved_elevation_summary(parcel_props.get(ELEVATION_SUMMARY_PROPERTY))
     contour_lines = load_saved_contour_lines(parcel_props.get(ELEVATION_CONTOURS_PROPERTY))
     contour_lines = project_contour_lines_to_parcel_space(contour_lines, source_points)
@@ -379,7 +381,7 @@ def create_site_assessment_from_neo4j(
         parcel=parcel_summary,
         image=None,
         house=build_house_summary(house_graph["house"], house_plan_points, parcel_summary.metrics.linear_unit, parcel_summary.metrics.area_unit),
-        rooms=house_graph["rooms"],
+        rooms=merge_room_layouts(house_graph["rooms"], saved_rooms),
         utility_connections=house_graph["utility_connections"],
         elevation_summary=elevation_summary,
         assumptions=build_assumptions(parcel_summary, None),
@@ -438,20 +440,34 @@ def save_feature_layout_to_neo4j(
         if house_plan_points is not None
         else None
     )
+    room_payload = (
+        json.dumps([serialize_room_summary(room) for room in rooms])
+        if rooms is not None
+        else None
+    )
     try:
         with driver.session(database=config.database) as session:
             apply_dataset_constraints(driver, config.database, HOUSE_CONSTRAINT_PATH)
             apply_dataset_constraints(driver, config.database, LANDSCAPE_CONSTRAINT_PATH)
+            set_clauses = [
+                f"parcel.{FEATURE_LAYOUT_PROPERTY} = $payload",
+                f"parcel.{HOUSE_PLAN_POINTS_PROPERTY} = $house_plan_payload",
+            ]
+            params = {
+                "parcel_id": parcel_id,
+                "payload": payload,
+                "house_plan_payload": house_plan_payload,
+            }
+            if rooms is not None:
+                set_clauses.append(f"parcel.{ROOM_LAYOUT_PROPERTY} = $room_payload")
+                params["room_payload"] = room_payload
             result = session.run(
                 f"""
                 MATCH (parcel:Parcel:Resource {{parcelId: $parcel_id}})
-                SET parcel.{FEATURE_LAYOUT_PROPERTY} = $payload
-                SET parcel.{HOUSE_PLAN_POINTS_PROPERTY} = $house_plan_payload
+                SET {", ".join(set_clauses)}
                 RETURN parcel.parcelId AS parcel_id
                 """,
-                parcel_id=parcel_id,
-                payload=payload,
-                house_plan_payload=house_plan_payload,
+                **params,
             ).single()
             if result is not None:
                 sync_house_graph(session, parcel_id=parcel_id, house_plan_points=house_plan_points)
@@ -554,6 +570,78 @@ def serialize_landscape_feature(feature: LandscapeFeature) -> dict[str, Any]:
         "visual_kind": feature.visual_kind,
         "rotation_degrees": feature.rotation_degrees,
     }
+
+
+def serialize_room_summary(room: RoomSummary) -> dict[str, Any]:
+    return {
+        "room_id": room.room_id,
+        "label": room.label,
+        "room_type": room.room_type,
+        "level_name": room.level_name,
+        "area": room.area,
+        "area_unit": room.area_unit,
+        "width": room.width,
+        "height": room.height,
+        "linear_unit": room.linear_unit,
+        "notes": room.notes,
+        "floor_x_ratio": room.floor_x_ratio,
+        "floor_y_ratio": room.floor_y_ratio,
+        "floor_width_ratio": room.floor_width_ratio,
+        "floor_height_ratio": room.floor_height_ratio,
+        "stair_direction": room.stair_direction,
+        "walls": room.walls,
+        "doors": room.doors,
+        "windows": room.windows,
+    }
+
+
+def load_saved_room_layouts(value: Any) -> list[RoomSummary]:
+    if not value:
+        return []
+    try:
+        items = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(items, list):
+        return []
+
+    rooms: list[RoomSummary] = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("room_id"):
+            continue
+        rooms.append(
+            RoomSummary(
+                room_id=str(item["room_id"]),
+                label=str(item.get("label") or item["room_id"]),
+                room_type=str(item.get("room_type") or "room"),
+                level_name=str(item.get("level_name") or "main level"),
+                area=float(item.get("area") or 0.0),
+                area_unit=str(item.get("area_unit") or "square feet"),
+                width=float(item.get("width") or 0.0),
+                height=float(item.get("height") or 0.0),
+                linear_unit=str(item.get("linear_unit") or "feet"),
+                notes=str(item.get("notes") or ""),
+                floor_x_ratio=float(item.get("floor_x_ratio") or 0.0),
+                floor_y_ratio=float(item.get("floor_y_ratio") or 0.0),
+                floor_width_ratio=float(item.get("floor_width_ratio") or 0.0),
+                floor_height_ratio=float(item.get("floor_height_ratio") or 0.0),
+                stair_direction=str(item.get("stair_direction") or "up"),
+                walls=load_json_layout(item.get("walls")) if isinstance(item.get("walls"), str) else list(item.get("walls") or []),
+                doors=load_json_layout(item.get("doors")) if isinstance(item.get("doors"), str) else list(item.get("doors") or []),
+                windows=load_json_layout(item.get("windows")) if isinstance(item.get("windows"), str) else list(item.get("windows") or []),
+            )
+        )
+    return rooms
+
+
+def merge_room_layouts(graph_rooms: list[RoomSummary], saved_rooms: list[RoomSummary]) -> list[RoomSummary]:
+    if not saved_rooms:
+        return graph_rooms
+
+    merged = {room.room_id: room for room in graph_rooms}
+    for room in saved_rooms:
+        merged[room.room_id] = room
+    return sorted(merged.values(), key=lambda room: (room.level_name.lower(), room.label.lower(), room.room_id))
 
 
 def load_saved_feature_layout(raw_value: Any, fallback: list[LandscapeFeature]) -> list[LandscapeFeature]:
@@ -957,6 +1045,9 @@ def sync_default_rooms(session, *, house_id: str, house_plan_points: list[tuple[
                 room.height = $height,
                 room.linearUnit = $linear_unit,
                 room.notes = $notes,
+                room.wallLayoutJson = $wall_layout_json,
+                room.doorLayoutJson = $door_layout_json,
+                room.windowLayoutJson = $window_layout_json,
                 room.uri = $room_uri
             MERGE (house)-[:HAS_ROOM {materialized: true, rdfs__label: 'has room'}]->(room)
             """,
@@ -971,6 +1062,9 @@ def sync_default_rooms(session, *, house_id: str, house_plan_points: list[tuple[
             height=room.height,
             linear_unit=room.linear_unit,
             notes=room.notes,
+            wall_layout_json=json.dumps(room.walls),
+            door_layout_json=json.dumps(room.doors),
+            window_layout_json=json.dumps(room.windows),
             room_uri=f"urn:house-plan-toolset:room:{room.room_id}",
         ).consume()
 
@@ -1031,6 +1125,9 @@ def build_default_room_summaries(house_id: str, house_plan_points: list[tuple[fl
                 floor_y_ratio=0.0,
                 floor_width_ratio=0.0,
                 floor_height_ratio=0.0,
+                walls=[],
+                doors=[],
+                windows=[],
             )
         )
     return rooms
@@ -1080,6 +1177,10 @@ def hydrate_room_summary(props: dict[str, Any]) -> RoomSummary | None:
         floor_y_ratio=float(props.get("floorYRatio") or 0.0),
         floor_width_ratio=float(props.get("floorWidthRatio") or 0.0),
         floor_height_ratio=float(props.get("floorHeightRatio") or 0.0),
+        stair_direction=str(props.get("stairDirection") or "up"),
+        walls=load_json_layout(props.get("wallLayoutJson")),
+        doors=load_json_layout(props.get("doorLayoutJson")),
+        windows=load_json_layout(props.get("windowLayoutJson")),
     )
 
 
@@ -1123,6 +1224,10 @@ def sync_rooms(session, *, parcel_id: str, rooms: list[RoomSummary]) -> None:
                 room.floorYRatio = $floor_y_ratio,
                 room.floorWidthRatio = $floor_width_ratio,
                 room.floorHeightRatio = $floor_height_ratio,
+                room.stairDirection = $stair_direction,
+                room.wallLayoutJson = $wall_layout_json,
+                room.doorLayoutJson = $door_layout_json,
+                room.windowLayoutJson = $window_layout_json,
                 room.uri = $room_uri
             MERGE (house)-[:HAS_ROOM {materialized: true, rdfs__label: 'has room'}]->(room)
             """,
@@ -1141,8 +1246,22 @@ def sync_rooms(session, *, parcel_id: str, rooms: list[RoomSummary]) -> None:
             floor_y_ratio=room.floor_y_ratio,
             floor_width_ratio=room.floor_width_ratio,
             floor_height_ratio=room.floor_height_ratio,
+            stair_direction=room.stair_direction,
+            wall_layout_json=json.dumps(room.walls),
+            door_layout_json=json.dumps(room.doors),
+            window_layout_json=json.dumps(room.windows),
             room_uri=f"urn:house-plan-toolset:room:{room.room_id}",
         ).consume()
+
+
+def load_json_layout(raw_value: Any) -> list[dict[str, Any]]:
+    if not raw_value:
+        return []
+    try:
+        value = json.loads(str(raw_value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
 
     stale_ids = existing_ids - incoming_ids
     if stale_ids:

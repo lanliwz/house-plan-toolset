@@ -100,6 +100,10 @@ class RoomSummary:
     floor_y_ratio: float = 0.0
     floor_width_ratio: float = 0.0
     floor_height_ratio: float = 0.0
+    stair_direction: str = "up"
+    walls: list[dict[str, object]] = field(default_factory=list)
+    doors: list[dict[str, object]] = field(default_factory=list)
+    windows: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

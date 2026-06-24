@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupSplitters();
     setupForm();
     setupActions();
+    setupPropertyEditing();
     setupViewToggle();
     setupZoomControls();
     setupGardenEditing();
@@ -172,10 +173,17 @@ function setupActions() {
     document.getElementById("add-house-plan").addEventListener("click", addHousePlan);
     document.getElementById("remove-house-plan").addEventListener("click", removeHousePlan);
     document.getElementById("add-room").addEventListener("click", addFloorRoom);
+    document.getElementById("rotate-stair").addEventListener("click", rotateSelectedStair);
     document.getElementById("add-house-vertex").addEventListener("click", addHousePlanVertex);
     document.getElementById("remove-house-vertex").addEventListener("click", removeHousePlanVertex);
     document.getElementById("save-features").addEventListener("click", saveFeatures);
     document.getElementById("remove-feature").addEventListener("click", removeSelectedFeature);
+}
+
+function setupPropertyEditing() {
+    const properties = document.getElementById("properties-list");
+    properties.addEventListener("change", handlePropertyEditorChange);
+    properties.addEventListener("click", handlePropertyEditorClick);
 }
 
 function setupViewToggle() {
@@ -349,6 +357,12 @@ function setupFloorPlanEditing() {
                 return;
             }
 
+            if (action === "rotate-stair-inline") {
+                rotateRoomDirection(room);
+                renderSelection();
+                return;
+            }
+
             const svg = canvas.querySelector("svg");
             if (!svg) {
                 renderSelection();
@@ -506,6 +520,7 @@ function applyAssessment(payload) {
     ensureHousePlanModel(payload);
     ensureFloorPlanModel(payload);
     state.assessment = payload;
+    (state.assessment.objects.rooms || []).forEach((room) => syncRoomPhysicalProperties(room));
     state.persistenceMode = payload.persistence_mode || "session";
     state.selectedKind = "parcel";
     state.selectedId = "parcel";
@@ -588,6 +603,22 @@ function mergeGeneratedFloorRooms(payload, rooms) {
         }
     }
 
+    FLOOR_VIEW_CONFIGS.forEach((config) => {
+        const roomsForLevel = byLevel.get(config.key) || [];
+        if (!roomsForLevel.length) {
+            return;
+        }
+        const hasStair = roomsForLevel.some((room) => String(room.properties.room_type || "").toLowerCase() === "stair");
+        if (hasStair) {
+            return;
+        }
+        const stairRoom = buildGeneratedRoomsForLevel(payload, config.key)
+            .find((room) => String(room.properties.room_type || "").toLowerCase() === "stair");
+        if (stairRoom) {
+            generated.push(stairRoom);
+        }
+    });
+
     return [...baseRooms, ...generated];
 }
 
@@ -604,46 +635,62 @@ function buildGeneratedRoomsForLevel(payload, levelKey) {
             ["basement-storage", "Storage", "storage", 0.20, 0.67, 0.08, 0.24, 0.26],
             ["basement-mech", "Mechanical", "mechanical", 0.14, 0.67, 0.38, 0.24, 0.20],
             ["basement-laundry", "Laundry", "laundry", 0.12, 0.67, 0.64, 0.24, 0.18],
+            ["basement-stair", "Stair to First Floor", "stair", 0.10, 0.60, 0.64, 0.18, 0.22],
         ],
         "first-floor": [
-            ["first-living", "Living Room", "living_room", 0.18, 0.08, 0.08, 0.28, 0.24],
-            ["first-kitchen", "Kitchen", "kitchen", 0.14, 0.44, 0.08, 0.20, 0.16],
-            ["first-dining", "Dining", "dining", 0.12, 0.44, 0.30, 0.20, 0.16],
+            ["first-living", "Living Room", "living_room", 0.16, 0.08, 0.08, 0.28, 0.24],
+            ["first-kitchen", "Kitchen", "kitchen", 0.12, 0.44, 0.08, 0.20, 0.16],
+            ["first-dining", "Dining", "dining", 0.10, 0.44, 0.30, 0.20, 0.16],
             ["first-bath", "Bath", "bathroom", 0.06, 0.08, 0.38, 0.12, 0.12],
             ["first-garage", "Double Car Garage", "garage", 0.34, 0.18, 0.60, 0.64, 0.24],
+            ["first-stair", "Stair Core", "stair", 0.10, 0.34, 0.48, 0.16, 0.22],
         ],
         "second-floor": [
             ["second-bed-1", "Bedroom 2", "bedroom", 0.28, 0.07, 0.08, 0.34, 0.28],
             ["second-bed-2", "Bedroom 3", "bedroom", 0.28, 0.07, 0.44, 0.34, 0.28],
-            ["second-bath", "Bath", "bathroom", 0.12, 0.46, 0.08, 0.18, 0.18],
-            ["second-study", "Study", "office", 0.16, 0.46, 0.34, 0.18, 0.18],
-            ["second-primary", "Primary Suite", "bedroom", 0.30, 0.67, 0.08, 0.22, 0.54],
+            ["second-bath", "Bath", "bathroom", 0.10, 0.46, 0.08, 0.18, 0.18],
+            ["second-study", "Study", "office", 0.12, 0.46, 0.34, 0.18, 0.18],
+            ["second-primary", "Primary Suite", "bedroom", 0.26, 0.67, 0.08, 0.22, 0.54],
+            ["second-stair", "Stair from First Floor", "stair", 0.10, 0.46, 0.58, 0.18, 0.20],
         ],
     };
 
-    return (templates[levelKey] || []).map(([suffix, label, roomType, share, xRatio, yRatio, widthRatio, heightRatio], index) => ({
-        kind: "room",
-        id: `generated-${suffix}-${index + 1}`,
-        label,
-        subtitle: `${levelLabel} | ${roomType.replaceAll("_", " ")}`,
-        description: `Blueprint room placeholder for the ${levelLabel.toLowerCase()} plan.`,
-        properties: {
-            room_id: `generated-${suffix}-${index + 1}`,
-            room_type: roomType,
-            level_name: levelLabel,
-            area: roundValue(area * share, 2),
-            area_unit: areaUnit,
-            width: roundValue(houseWidth * widthRatio, 2),
-            height: roundValue(houseHeight * heightRatio, 2),
-            linear_unit: linearUnit,
-            notes: `Generated ${levelLabel.toLowerCase()} room placeholder.`,
-            generated_floor_room: true,
-            floor_x_ratio: xRatio,
-            floor_y_ratio: yRatio,
-            floor_width_ratio: widthRatio,
-            floor_height_ratio: heightRatio,
-        },
-    }));
+    return (templates[levelKey] || []).map(([suffix, label, roomType, share, xRatio, yRatio, widthRatio, heightRatio], index) => {
+        const stairDirection = levelKey === "second-floor" ? "down" : "up";
+        const adjustedWidthRatio = roomType === "stair" && stairDirection !== "left" && stairDirection !== "right"
+            ? roundValue(Math.min(widthRatio, 4 / Math.max(houseWidth, 1)), 4)
+            : widthRatio;
+        const adjustedHeightRatio = roomType === "stair" && (stairDirection === "left" || stairDirection === "right")
+            ? roundValue(Math.min(heightRatio, 4 / Math.max(houseHeight, 1)), 4)
+            : heightRatio;
+        return {
+            kind: "room",
+            id: `generated-${suffix}-${index + 1}`,
+            label,
+            subtitle: `${levelLabel} | ${roomType.replaceAll("_", " ")}`,
+            description: `Blueprint room placeholder for the ${levelLabel.toLowerCase()} plan.`,
+            properties: {
+                room_id: `generated-${suffix}-${index + 1}`,
+                room_type: roomType,
+                level_name: levelLabel,
+                area: roundValue(area * share, 2),
+                area_unit: areaUnit,
+                width: roundValue(houseWidth * adjustedWidthRatio, 2),
+                height: roundValue(houseHeight * adjustedHeightRatio, 2),
+                linear_unit: linearUnit,
+                notes: `Generated ${levelLabel.toLowerCase()} room placeholder.`,
+                generated_floor_room: true,
+                floor_x_ratio: xRatio,
+                floor_y_ratio: yRatio,
+                floor_width_ratio: adjustedWidthRatio,
+                floor_height_ratio: adjustedHeightRatio,
+                stair_direction: stairDirection,
+                walls: buildDefaultRoomWalls(),
+                doors: buildDefaultRoomDoors(),
+                windows: buildDefaultRoomWindows(),
+            },
+        };
+    });
 }
 
 function ensureRoomFloorLayout(payload, room) {
@@ -662,6 +709,10 @@ function ensureRoomFloorLayout(payload, room) {
     room.properties.floor_y_ratio ??= roundValue(pad + (row * (cellHeight + pad)), 4);
     room.properties.floor_width_ratio ??= roundValue(cellWidth, 4);
     room.properties.floor_height_ratio ??= roundValue(cellHeight, 4);
+    room.properties.stair_direction ??= "up";
+    room.properties.walls = normalizeRoomWalls(room.properties.walls);
+    room.properties.doors = normalizeRoomOpenings(room.properties.doors);
+    room.properties.windows = normalizeRoomOpenings(room.properties.windows);
 }
 
 function syncHousePlanObjects(payload) {
@@ -1055,9 +1106,10 @@ function buildFloorPlanSvg(data, levelKey) {
     const allRooms = data.objects.rooms || [];
     const levelRooms = allRooms.filter((room) => roomBelongsToFloor(room, levelKey));
     const shellBox = buildFloorShellBox(data.house_plan_points || []);
-    const shellVertexCount = shellBox.vertexPoints.length;
-    const roomMarkup = buildFloorRoomMarkup(levelRooms, shellBox);
-    const virtualGarageMarkup = buildVirtualGarageMarkup(allRooms, shellBox, levelKey);
+    const shellShape = buildFloorShellShape(shellBox, allRooms, levelKey);
+    const shellVertexCount = shellShape.vertexPoints.length;
+    const roomMarkup = buildFloorRoomMarkup(levelRooms, shellShape);
+    const virtualGarageMarkup = buildVirtualGarageMarkup(shellShape, levelKey);
     const note = levelRooms.length
         ? `${levelRooms.length} rooms loaded | ${shellVertexCount} walls`
         : `No rooms loaded yet | ${shellVertexCount} walls`;
@@ -1068,11 +1120,11 @@ function buildFloorPlanSvg(data, levelKey) {
                 <path d="M 24 0 L 0 0 0 24" class="floor-grid-minor"></path>
             </pattern>
             <clipPath id="floor-shell-clip-${levelKey}">
-                <polygon points="${shellBox.polygonPoints}"></polygon>
+                <polygon points="${shellShape.polygonPoints}"></polygon>
             </clipPath>
         </defs>
         <rect class="floor-grid-surface" width="${shellBox.canvasWidth}" height="${shellBox.canvasHeight}" fill="url(#floor-grid-${levelKey})"></rect>
-        <polygon class="floor-shell" data-kind="house" data-id="house" points="${shellBox.polygonPoints}"></polygon>
+        <polygon class="floor-shell" data-kind="house" data-id="house" points="${shellShape.polygonPoints}"></polygon>
         ${virtualGarageMarkup}
         <g clip-path="url(#floor-shell-clip-${levelKey})">
             ${roomMarkup}
@@ -1095,9 +1147,14 @@ function buildFloorRoomMarkup(rooms, shellBox) {
         const selected = state.selectedKind === "room" && state.selectedId === room.id ? "selected" : "";
         const label = room.label.length > 18 ? `${room.label.slice(0, 18)}...` : room.label;
         const controls = selected ? buildFloorRoomControls(room.id, x, y, roomWidth, roomHeight) : "";
+        const openingMarkup = buildRoomOpeningMarkup(room, x, y, roomWidth, roomHeight);
+        const stairMarkup = buildStairMarkup(room, x, y, roomWidth, roomHeight);
+        const stairClass = String(room.properties.room_type || "").toLowerCase() === "stair" ? "stair-room" : "";
         return `
-            <rect class="floor-room ${selected}" data-kind="room" data-id="${escapeHtml(room.id)}" data-floor-action="move-room"
+            <rect class="floor-room ${stairClass} ${selected}" data-kind="room" data-id="${escapeHtml(room.id)}" data-floor-action="move-room"
                 x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${roomWidth.toFixed(1)}" height="${roomHeight.toFixed(1)}"></rect>
+            ${openingMarkup}
+            ${stairMarkup}
             ${controls}
             <text class="floor-room-label zoom-stable-label" text-anchor="middle"
                 transform="${buildStableLabelTransform(x + (roomWidth / 2), y + (roomHeight / 2))}">${escapeHtml(label)}</text>
@@ -1105,27 +1162,131 @@ function buildFloorRoomMarkup(rooms, shellBox) {
     }).join("");
 }
 
-function buildVirtualGarageMarkup(allRooms, shellBox, levelKey) {
-    if (levelKey === "first-floor") {
+function buildStairMarkup(room, x, y, width, height) {
+    if (String(room.properties.room_type || "").toLowerCase() !== "stair") {
         return "";
     }
-    const garageRoom = allRooms.find((room) => String(room?.properties?.room_type || "").toLowerCase() === "garage");
-    if (!garageRoom) {
-        return "";
-    }
+    const roomId = escapeHtml(room.id);
+    const direction = String(room.properties.stair_direction || "up");
+    const longSpan = direction === "left" || direction === "right" ? width : height;
+    const stepCount = Math.max(4, Math.min(10, Math.round(longSpan / 28)));
+    const steps = [];
 
-    const x = shellBox.x + (shellBox.width * Number(garageRoom.properties.floor_x_ratio || 0));
-    const y = shellBox.y + (shellBox.height * Number(garageRoom.properties.floor_y_ratio || 0));
-    const width = shellBox.width * Number(garageRoom.properties.floor_width_ratio || 0);
-    const height = shellBox.height * Number(garageRoom.properties.floor_height_ratio || 0);
-    if (width <= 0 || height <= 0) {
+    for (let index = 1; index < stepCount; index += 1) {
+        const ratio = index / stepCount;
+        if (direction === "up" || direction === "down") {
+            const lineY = direction === "up" ? y + height - (height * ratio) : y + (height * ratio);
+            steps.push(`<line class="stair-step" data-kind="room" data-id="${roomId}" data-floor-action="move-room" x1="${(x + 4).toFixed(1)}" y1="${lineY.toFixed(1)}" x2="${(x + width - 4).toFixed(1)}" y2="${lineY.toFixed(1)}"></line>`);
+        } else {
+            const lineX = direction === "right" ? x + (width * ratio) : x + width - (width * ratio);
+            steps.push(`<line class="stair-step" data-kind="room" data-id="${roomId}" data-floor-action="move-room" x1="${lineX.toFixed(1)}" y1="${(y + 4).toFixed(1)}" x2="${lineX.toFixed(1)}" y2="${(y + height - 4).toFixed(1)}"></line>`);
+        }
+    }
+    return `${steps.join("")}${buildStairArrow(roomId, direction, x, y, width, height)}${buildStairRotateHandle(roomId, x, y, width, height)}`;
+}
+
+function buildStairArrow(roomId, direction, x, y, width, height) {
+    const cx = x + (width / 2);
+    const cy = y + (height / 2);
+    if (direction === "up") {
+        return `<path class="stair-arrow" data-kind="room" data-id="${roomId}" data-floor-action="move-room" d="M ${cx.toFixed(1)} ${(y + height - 10).toFixed(1)} L ${cx.toFixed(1)} ${(y + 12).toFixed(1)} M ${(cx - 6).toFixed(1)} ${(y + 20).toFixed(1)} L ${cx.toFixed(1)} ${(y + 12).toFixed(1)} L ${(cx + 6).toFixed(1)} ${(y + 20).toFixed(1)}"></path>`;
+    }
+    if (direction === "down") {
+        return `<path class="stair-arrow" data-kind="room" data-id="${roomId}" data-floor-action="move-room" d="M ${cx.toFixed(1)} ${(y + 10).toFixed(1)} L ${cx.toFixed(1)} ${(y + height - 12).toFixed(1)} M ${(cx - 6).toFixed(1)} ${(y + height - 20).toFixed(1)} L ${cx.toFixed(1)} ${(y + height - 12).toFixed(1)} L ${(cx + 6).toFixed(1)} ${(y + height - 20).toFixed(1)}"></path>`;
+    }
+    if (direction === "left") {
+        return `<path class="stair-arrow" data-kind="room" data-id="${roomId}" data-floor-action="move-room" d="M ${(x + width - 10).toFixed(1)} ${cy.toFixed(1)} L ${(x + 12).toFixed(1)} ${cy.toFixed(1)} M ${(x + 20).toFixed(1)} ${(cy - 6).toFixed(1)} L ${(x + 12).toFixed(1)} ${cy.toFixed(1)} L ${(x + 20).toFixed(1)} ${(cy + 6).toFixed(1)}"></path>`;
+    }
+    return `<path class="stair-arrow" data-kind="room" data-id="${roomId}" data-floor-action="move-room" d="M ${(x + 10).toFixed(1)} ${cy.toFixed(1)} L ${(x + width - 12).toFixed(1)} ${cy.toFixed(1)} M ${(x + width - 20).toFixed(1)} ${(cy - 6).toFixed(1)} L ${(x + width - 12).toFixed(1)} ${cy.toFixed(1)} L ${(x + width - 20).toFixed(1)} ${(cy + 6).toFixed(1)}"></path>`;
+}
+
+function buildStairRotateHandle(roomId, x, y, width, height) {
+    return `<circle class="floor-room-edge-handle" data-kind="room" data-id="${roomId}" data-floor-action="rotate-stair-inline" cx="${(x + width - 10).toFixed(1)}" cy="${(y + 10).toFixed(1)}" r="${buildStableCircleRadius(5)}"></circle>`;
+}
+
+function buildVirtualGarageMarkup(shellShape, levelKey) {
+    if (levelKey === "first-floor" || !shellShape.virtualLine) {
         return "";
     }
 
     return `
-        <rect class="floor-virtual-cutout" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}"></rect>
-        <line class="floor-virtual-line" x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(x + width).toFixed(1)}" y2="${y.toFixed(1)}"></line>
+        <line class="floor-virtual-line"
+            x1="${shellShape.virtualLine.x1.toFixed(1)}" y1="${shellShape.virtualLine.y.toFixed(1)}"
+            x2="${shellShape.virtualLine.x2.toFixed(1)}" y2="${shellShape.virtualLine.y.toFixed(1)}"></line>
     `;
+}
+
+function buildFloorShellShape(shellBox, allRooms, levelKey) {
+    const baseShape = {
+        ...shellBox,
+        polygonPoints: shellBox.polygonPoints,
+        vertexPoints: shellBox.vertexPoints,
+        virtualLine: null,
+    };
+    if (levelKey === "first-floor") {
+        return baseShape;
+    }
+
+    const garageRoom = allRooms.find((room) => String(room?.properties?.room_type || "").trim().toLowerCase() === "garage");
+    if (!garageRoom) {
+        return baseShape;
+    }
+
+    const cutY = shellBox.y + (shellBox.height * Number(garageRoom.properties.floor_y_ratio || 0));
+    const clippedPoints = clipPolygonToTop(shellBox.vertexPoints, cutY);
+    if (clippedPoints.length < 3) {
+        return baseShape;
+    }
+
+    const onCutLine = clippedPoints.filter((point) => Math.abs(point.y - cutY) < 0.2);
+    const lineXs = onCutLine.map((point) => point.x);
+    const virtualLine = lineXs.length >= 2
+        ? { x1: Math.min(...lineXs), x2: Math.max(...lineXs), y: cutY }
+        : null;
+
+    return {
+        ...shellBox,
+        vertexPoints: clippedPoints,
+        polygonPoints: clippedPoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" "),
+        height: Math.max(cutY - shellBox.y, 1),
+        virtualLine,
+    };
+}
+
+function clipPolygonToTop(points, maxY) {
+    if (!points.length) {
+        return [];
+    }
+
+    const output = [];
+    for (let index = 0; index < points.length; index += 1) {
+        const current = points[index];
+        const previous = points[(index + points.length - 1) % points.length];
+        const currentInside = current.y <= maxY;
+        const previousInside = previous.y <= maxY;
+
+        if (currentInside) {
+            if (!previousInside) {
+                output.push(intersectHorizontal(previous, current, maxY));
+            }
+            output.push(current);
+        } else if (previousInside) {
+            output.push(intersectHorizontal(previous, current, maxY));
+        }
+    }
+    return output;
+}
+
+function intersectHorizontal(start, end, y) {
+    const dy = end.y - start.y;
+    if (Math.abs(dy) < 1e-9) {
+        return { x: end.x, y };
+    }
+    const ratio = (y - start.y) / dy;
+    return {
+        x: start.x + ((end.x - start.x) * ratio),
+        y,
+    };
 }
 
 function buildFloorShellBox(housePoints) {
@@ -1179,11 +1340,66 @@ function buildFloorShellBox(housePoints) {
 }
 
 function buildFloorRoomControls(roomId, x, y, width, height) {
+    const midX = x + (width / 2);
+    const midY = y + (height / 2);
     return `
         <rect class="floor-room-outline" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}"></rect>
+        <circle class="floor-room-edge-handle" data-kind="room" data-id="${escapeHtml(roomId)}" data-floor-action="resize-left"
+            cx="${x.toFixed(1)}" cy="${midY.toFixed(1)}" r="${buildStableCircleRadius(5)}"></circle>
+        <circle class="floor-room-edge-handle" data-kind="room" data-id="${escapeHtml(roomId)}" data-floor-action="resize-right"
+            cx="${(x + width).toFixed(1)}" cy="${midY.toFixed(1)}" r="${buildStableCircleRadius(5)}"></circle>
+        <circle class="floor-room-edge-handle" data-kind="room" data-id="${escapeHtml(roomId)}" data-floor-action="resize-top"
+            cx="${midX.toFixed(1)}" cy="${y.toFixed(1)}" r="${buildStableCircleRadius(5)}"></circle>
+        <circle class="floor-room-edge-handle" data-kind="room" data-id="${escapeHtml(roomId)}" data-floor-action="resize-bottom"
+            cx="${midX.toFixed(1)}" cy="${(y + height).toFixed(1)}" r="${buildStableCircleRadius(5)}"></circle>
         <circle class="floor-room-handle" data-kind="room" data-id="${escapeHtml(roomId)}" data-floor-action="resize-room"
             cx="${(x + width).toFixed(1)}" cy="${(y + height).toFixed(1)}" r="${buildStableCircleRadius(6)}"></circle>
     `;
+}
+
+function buildRoomOpeningMarkup(room, x, y, width, height) {
+    const walls = Array.isArray(room.properties.walls) ? room.properties.walls : [];
+    const doors = Array.isArray(room.properties.doors) ? room.properties.doors : [];
+    const windows = Array.isArray(room.properties.windows) ? room.properties.windows : [];
+    const wallMarkup = walls.map((wall) => buildWallSegmentMarkup(wall, x, y, width, height)).join("");
+    const doorMarkup = doors.map((door) => buildOpeningSegmentMarkup(door, x, y, width, height, "room-door")).join("");
+    const windowMarkup = windows.map((windowItem) => buildOpeningSegmentMarkup(windowItem, x, y, width, height, "room-window")).join("");
+    return `${wallMarkup}${doorMarkup}${windowMarkup}`;
+}
+
+function buildWallSegmentMarkup(wall, x, y, width, height) {
+    const segment = buildEdgeSegmentFromPlacement(wall, x, y, width, height);
+    if (!segment) {
+        return "";
+    }
+    return `<line class="room-wall-segment" x1="${segment.x1.toFixed(1)}" y1="${segment.y1.toFixed(1)}" x2="${segment.x2.toFixed(1)}" y2="${segment.y2.toFixed(1)}"></line>`;
+}
+
+function buildOpeningSegmentMarkup(item, x, y, width, height, className) {
+    const segment = buildEdgeSegmentFromPlacement(item, x, y, width, height);
+    if (!segment) {
+        return "";
+    }
+    return `<line class="${className}" x1="${segment.x1.toFixed(1)}" y1="${segment.y1.toFixed(1)}" x2="${segment.x2.toFixed(1)}" y2="${segment.y2.toFixed(1)}"></line>`;
+}
+
+function buildEdgeSegmentFromPlacement(item, x, y, width, height) {
+    const edge = String(item?.edge || "top");
+    const start = Number(item?.start_ratio ?? 0.15);
+    const end = Number(item?.end_ratio ?? 0.85);
+    if (edge === "top") {
+        return { x1: x + (width * start), y1: y, x2: x + (width * end), y2: y };
+    }
+    if (edge === "bottom") {
+        return { x1: x + (width * start), y1: y + height, x2: x + (width * end), y2: y + height };
+    }
+    if (edge === "left") {
+        return { x1: x, y1: y + (height * start), x2: x, y2: y + (height * end) };
+    }
+    if (edge === "right") {
+        return { x1: x + width, y1: y + (height * start), x2: x + width, y2: y + (height * end) };
+    }
+    return null;
 }
 
 function buildDiagramGeometry(points) {
@@ -1490,13 +1706,36 @@ function handleFloorPlanPointerMove(event) {
     let nextY = state.floorPlanInteraction.startLayout.y;
     let nextWidth = state.floorPlanInteraction.startLayout.width;
     let nextHeight = state.floorPlanInteraction.startLayout.height;
+    const sizeLimits = getRoomResizeLimits(room);
 
     if (state.floorPlanInteraction.mode === "move-room") {
         nextX = clamp(nextX + deltaX, 0.02, 0.98 - nextWidth);
         nextY = clamp(nextY + deltaY, 0.02, 0.98 - nextHeight);
+    } else if (state.floorPlanInteraction.mode === "resize-left") {
+        const right = nextX + nextWidth;
+        const newLeft = clamp(
+            nextX + deltaX,
+            Math.max(0.02, right - sizeLimits.maxWidthRatio),
+            right - sizeLimits.minWidth,
+        );
+        nextWidth = (nextX + nextWidth) - newLeft;
+        nextX = newLeft;
+    } else if (state.floorPlanInteraction.mode === "resize-right") {
+        nextWidth = clamp(nextWidth + deltaX, sizeLimits.minWidth, sizeLimits.maxWidth(nextX));
+    } else if (state.floorPlanInteraction.mode === "resize-top") {
+        const bottom = nextY + nextHeight;
+        const newTop = clamp(
+            nextY + deltaY,
+            Math.max(0.02, bottom - sizeLimits.maxHeightRatio),
+            bottom - sizeLimits.minHeight,
+        );
+        nextHeight = (nextY + nextHeight) - newTop;
+        nextY = newTop;
+    } else if (state.floorPlanInteraction.mode === "resize-bottom") {
+        nextHeight = clamp(nextHeight + deltaY, sizeLimits.minHeight, sizeLimits.maxHeight(nextY));
     } else if (state.floorPlanInteraction.mode === "resize-room") {
-        nextWidth = clamp(nextWidth + deltaX, 0.12, 0.96 - nextX);
-        nextHeight = clamp(nextHeight + deltaY, 0.12, 0.96 - nextY);
+        nextWidth = clamp(nextWidth + deltaX, sizeLimits.minWidth, sizeLimits.maxWidth(nextX));
+        nextHeight = clamp(nextHeight + deltaY, sizeLimits.minHeight, sizeLimits.maxHeight(nextY));
     }
 
     room.properties.floor_x_ratio = roundValue(nextX, 4);
@@ -1506,6 +1745,40 @@ function handleFloorPlanPointerMove(event) {
     syncRoomPhysicalProperties(room);
 
     renderSelection();
+}
+
+function getRoomResizeLimits(room) {
+    const defaultMin = 0.12;
+    const maxBound = 0.96;
+    const house = state.assessment?.objects?.housePlan?.properties || {};
+    const houseWidth = Math.max(Number(house.width || 0), 1);
+    const houseHeight = Math.max(Number(house.height || 0), 1);
+    const isStair = String(room?.properties?.room_type || "").toLowerCase() === "stair";
+    const direction = String(room?.properties?.stair_direction || "up");
+
+    let minWidth = defaultMin;
+    let minHeight = defaultMin;
+    let maxWidthRatio = maxBound;
+    let maxHeightRatio = maxBound;
+
+    if (isStair) {
+        if (direction === "up" || direction === "down") {
+            minWidth = Math.min(maxBound, 3 / houseWidth);
+            maxWidthRatio = Math.min(maxBound, 6 / houseWidth);
+        } else {
+            minHeight = Math.min(maxBound, 3 / houseHeight);
+            maxHeightRatio = Math.min(maxBound, 6 / houseHeight);
+        }
+    }
+
+    return {
+        minWidth,
+        minHeight,
+        maxWidthRatio,
+        maxHeightRatio,
+        maxWidth: (x) => Math.min(maxWidthRatio, maxBound - x),
+        maxHeight: (y) => Math.min(maxHeightRatio, maxBound - y),
+    };
 }
 
 function stopFloorPlanInteraction(event) {
@@ -1976,15 +2249,36 @@ function buildSelectionSummary(item) {
 function renderProperties(item) {
     document.getElementById("properties-title").textContent = item.label;
     const propertiesData = buildDisplayProperties(item);
-    const entries = Object.entries(propertiesData);
+    const entries = Object.entries(propertiesData).filter(([key]) => shouldDisplayProperty(item, key));
     const properties = document.getElementById("properties-list");
-    properties.innerHTML = entries.map(([key, value]) => (
-        `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(formatPropertyValue(key, value, propertiesData))}</dd>`
-    )).join("");
+    properties.innerHTML = entries.map(([key, value]) => renderPropertyEntry(item, key, value, propertiesData)).join("");
+}
+
+function renderPropertyEntry(item, key, value, properties) {
+    const label = escapeHtml(formatPropertyLabel(key));
+    if (item.kind === "room" && key === "stair_clear_width_feet") {
+        return `<dt>${label}</dt><dd>${buildStairWidthEditor(value)}</dd>`;
+    }
+    if (item.kind === "room" && ["walls", "doors", "windows"].includes(key)) {
+        return `<dt>${label}</dt><dd>${buildRoomSegmentEditor(key, value)}</dd>`;
+    }
+    return `<dt>${label}</dt><dd>${escapeHtml(formatPropertyValue(key, value, properties))}</dd>`;
 }
 
 function buildDisplayProperties(item) {
     const baseProperties = { ...(item.properties || {}) };
+    if (item.kind === "room" && String(baseProperties.room_type || "").toLowerCase() === "stair") {
+        const direction = String(baseProperties.stair_direction || "up");
+        const widthValue = direction === "left" || direction === "right"
+            ? Number(baseProperties.height || 0)
+            : Number(baseProperties.width || 0);
+        const widthFeet = convertLengthToFeet(widthValue, baseProperties.linear_unit);
+        return {
+            ...baseProperties,
+            stair_clear_width_feet: roundValue(widthFeet, 2),
+            stair_width_range: "3 to 6 ft",
+        };
+    }
     if (item.kind !== "feature" || baseProperties.visual_kind !== "patio" || !state.assessment) {
         return baseProperties;
     }
@@ -2101,6 +2395,7 @@ function updateFeatureActions() {
     const addHousePlanButton = document.getElementById("add-house-plan");
     const removeHousePlanButton = document.getElementById("remove-house-plan");
     const addRoomButton = document.getElementById("add-room");
+    const rotateStairButton = document.getElementById("rotate-stair");
     const addHouseVertexButton = document.getElementById("add-house-vertex");
     const removeHouseVertexButton = document.getElementById("remove-house-vertex");
     const saveButton = document.getElementById("save-features");
@@ -2109,6 +2404,8 @@ function updateFeatureActions() {
     const hasHousePlan = hasAssessment && Boolean(state.assessment.objects.housePlan);
     const isHouseVertexSelected = hasAssessment && state.selectedKind === "house-vertex" && Boolean(getSelectedObject());
     const isFeatureSelected = hasAssessment && state.selectedKind === "feature" && Boolean(getSelectedObject());
+    const selectedRoom = hasAssessment && state.selectedKind === "room" ? getSelectedObject() : null;
+    const isStairSelected = Boolean(selectedRoom) && String(selectedRoom.properties.room_type || "").toLowerCase() === "stair";
     const isFloorView = ["basement", "first-floor", "second-floor"].includes(state.activeView);
 
     const isNeo4jBacked = state.persistenceMode === "neo4j" && Boolean(state.currentNeo4jParcelId);
@@ -2116,6 +2413,7 @@ function updateFeatureActions() {
     addHousePlanButton.disabled = !hasAssessment || hasHousePlan;
     removeHousePlanButton.disabled = !hasHousePlan;
     addRoomButton.disabled = !hasAssessment || !hasHousePlan || !isFloorView;
+    rotateStairButton.disabled = !isStairSelected;
     addHouseVertexButton.disabled = !hasHousePlan;
     removeHouseVertexButton.disabled = !isHouseVertexSelected || state.assessment.house_plan_points.length <= 3;
     saveButton.disabled = !hasAssessment || !isNeo4jBacked;
@@ -2158,6 +2456,10 @@ function addFloorRoom() {
             floor_y_ratio: layout.y,
             floor_width_ratio: layout.width,
             floor_height_ratio: layout.height,
+            stair_direction: "up",
+            walls: buildDefaultRoomWalls(),
+            doors: buildDefaultRoomDoors(),
+            windows: buildDefaultRoomWindows(),
         },
     };
 
@@ -2200,7 +2502,81 @@ function syncRoomPhysicalProperties(room) {
 
     room.properties.width = roundValue(houseWidth * widthRatio, 2);
     room.properties.height = roundValue(houseHeight * heightRatio, 2);
+    if (String(room.properties.room_type || "").toLowerCase() === "stair") {
+        enforceStairConstraints(room, houseWidth, houseHeight);
+    }
     room.properties.area = roundValue(houseArea * widthRatio * heightRatio, 2);
+    room.properties.walls = normalizeRoomWalls(room.properties.walls);
+    room.properties.doors = normalizeRoomOpenings(room.properties.doors);
+    room.properties.windows = normalizeRoomOpenings(room.properties.windows);
+}
+
+function buildDefaultRoomWalls() {
+    return [
+        { edge: "top", start_ratio: 0, end_ratio: 1 },
+        { edge: "right", start_ratio: 0, end_ratio: 1 },
+        { edge: "bottom", start_ratio: 0, end_ratio: 1 },
+        { edge: "left", start_ratio: 0, end_ratio: 1 },
+    ];
+}
+
+function buildDefaultRoomDoors() {
+    return [{ edge: "bottom", start_ratio: 0.38, end_ratio: 0.62 }];
+}
+
+function buildDefaultRoomWindows() {
+    return [{ edge: "top", start_ratio: 0.2, end_ratio: 0.8 }];
+}
+
+function normalizeRoomWalls(items) {
+    const list = Array.isArray(items) && items.length ? items : buildDefaultRoomWalls();
+    return list.map((item) => ({
+        edge: String(item.edge || "top"),
+        start_ratio: roundValue(Number(item.start_ratio ?? 0), 4),
+        end_ratio: roundValue(Number(item.end_ratio ?? 1), 4),
+    }));
+}
+
+function normalizeRoomOpenings(items) {
+    const list = Array.isArray(items) ? items : [];
+    return list.map((item) => ({
+        edge: String(item.edge || "top"),
+        start_ratio: roundValue(Number(item.start_ratio ?? 0.2), 4),
+        end_ratio: roundValue(Number(item.end_ratio ?? 0.8), 4),
+    }));
+}
+
+function enforceStairConstraints(room, houseWidth, houseHeight) {
+    const direction = String(room.properties.stair_direction || "up");
+    const minFeet = 3;
+    const maxFeet = 6;
+    if (direction === "up" || direction === "down") {
+        const clamped = clamp(Number(room.properties.width || 0), minFeet, maxFeet);
+        room.properties.width = roundValue(clamped, 2);
+        room.properties.floor_width_ratio = roundValue(clamped / Math.max(houseWidth, 1), 4);
+    } else {
+        const clamped = clamp(Number(room.properties.height || 0), minFeet, maxFeet);
+        room.properties.height = roundValue(clamped, 2);
+        room.properties.floor_height_ratio = roundValue(clamped / Math.max(houseHeight, 1), 4);
+    }
+}
+
+function rotateSelectedStair() {
+    const room = state.selectedKind === "room" ? getSelectedObject() : null;
+    if (!room || String(room.properties.room_type || "").toLowerCase() !== "stair") {
+        return;
+    }
+    rotateRoomDirection(room);
+    renderSelection();
+}
+
+function rotateRoomDirection(room) {
+    const directions = ["up", "right", "down", "left"];
+    const current = String(room.properties.stair_direction || "up");
+    const currentIndex = directions.indexOf(current);
+    const next = directions[(currentIndex + 1 + directions.length) % directions.length];
+    room.properties.stair_direction = next;
+    syncRoomPhysicalProperties(room);
 }
 
 function metricCard(label, value) {
@@ -2353,6 +2729,10 @@ async function saveFeatures() {
                         floor_y_ratio: room.properties.floor_y_ratio || 0,
                         floor_width_ratio: room.properties.floor_width_ratio || 0,
                         floor_height_ratio: room.properties.floor_height_ratio || 0,
+                        stair_direction: room.properties.stair_direction || "up",
+                        walls: room.properties.walls || [],
+                        doors: room.properties.doors || [],
+                        windows: room.properties.windows || [],
                     })),
                 }),
             },
@@ -2431,11 +2811,186 @@ function stringifyValue(value) {
     return String(value);
 }
 
+function formatRoomSegmentSummary(items, kind) {
+    if (!Array.isArray(items) || !items.length) {
+        return `No ${kind}`;
+    }
+    return items.map((item, index) => {
+        const edge = titleCase(String(item.edge || "top"));
+        const start = `${Math.round(Number(item.start_ratio ?? 0) * 100)}%`;
+        const end = `${Math.round(Number(item.end_ratio ?? 1) * 100)}%`;
+        return `${index + 1}. ${edge} ${start}-${end}`;
+    }).join(" | ");
+}
+
+function buildRoomSegmentEditor(kind, items) {
+    const list = Array.isArray(items) ? items : [];
+    const rows = list.map((item, index) => `
+        <div class="segment-row">
+            <select data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="edge">
+                ${["top", "right", "bottom", "left"].map((edge) => (
+                    `<option value="${edge}" ${String(item.edge || "top") === edge ? "selected" : ""}>${escapeHtml(titleCase(edge))}</option>`
+                )).join("")}
+            </select>
+            <input type="number" min="0" max="100" step="1"
+                value="${Math.round(Number(item.start_ratio ?? 0) * 100)}"
+                data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="start_ratio" />
+            <span class="segment-separator">to</span>
+            <input type="number" min="0" max="100" step="1"
+                value="${Math.round(Number(item.end_ratio ?? 1) * 100)}"
+                data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="end_ratio" />
+            <button type="button" class="segment-remove"
+                data-segment-action="remove" data-segment-kind="${kind}" data-segment-index="${index}">Remove</button>
+        </div>
+    `).join("");
+    return `
+        <div class="segment-editor">
+            <div class="segment-editor-summary">${escapeHtml(formatPropertyValue(kind, list, {}))}</div>
+            <div class="segment-editor-list">${rows || `<div class="segment-empty">No ${escapeHtml(kind)}</div>`}</div>
+            <button type="button" class="segment-add" data-segment-action="add" data-segment-kind="${kind}">Add ${escapeHtml(titleCase(kind.slice(0, -1) || kind))}</button>
+        </div>
+    `;
+}
+
+function buildStairWidthEditor(value) {
+    return `
+        <div class="stair-width-editor">
+            <input type="number" min="3" max="6" step="0.1" value="${Number(value).toFixed(1)}"
+                data-property-editor="stair-width" aria-label="Stair width in feet" />
+            <span class="stair-width-unit">ft</span>
+        </div>
+    `;
+}
+
+function handlePropertyEditorChange(event) {
+    const target = event.target;
+    if (target.dataset.propertyEditor === "stair-width") {
+        const room = state.selectedKind === "room" ? getSelectedObject() : null;
+        if (!room) {
+            return;
+        }
+        applyStairWidthValue(room, Number(target.value || 3));
+        renderSelection();
+        return;
+    }
+    if (!target.dataset.segmentKind || !target.dataset.segmentField) {
+        return;
+    }
+    const room = state.selectedKind === "room" ? getSelectedObject() : null;
+    if (!room) {
+        return;
+    }
+    const kind = target.dataset.segmentKind;
+    const index = Number(target.dataset.segmentIndex);
+    const field = target.dataset.segmentField;
+    const list = Array.isArray(room.properties[kind]) ? room.properties[kind].map((item) => ({ ...item })) : [];
+    if (!list[index]) {
+        return;
+    }
+    if (field === "edge") {
+        list[index].edge = String(target.value || "top");
+    } else {
+        const rawValue = clamp(Number(target.value || 0), 0, 100) / 100;
+        list[index][field] = roundValue(rawValue, 4);
+        if (field === "start_ratio" && list[index].end_ratio < list[index].start_ratio) {
+            list[index].end_ratio = list[index].start_ratio;
+        }
+        if (field === "end_ratio" && list[index].start_ratio > list[index].end_ratio) {
+            list[index].start_ratio = list[index].end_ratio;
+        }
+    }
+    room.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    renderSelection();
+}
+
+function handlePropertyEditorClick(event) {
+    const actionTarget = event.target.closest("[data-segment-action]");
+    if (!actionTarget) {
+        return;
+    }
+    const room = state.selectedKind === "room" ? getSelectedObject() : null;
+    if (!room) {
+        return;
+    }
+    const action = actionTarget.dataset.segmentAction;
+    const kind = actionTarget.dataset.segmentKind;
+    const list = Array.isArray(room.properties[kind]) ? room.properties[kind].map((item) => ({ ...item })) : [];
+    if (action === "add") {
+        list.push(buildDefaultSegment(kind));
+    } else if (action === "remove") {
+        const index = Number(actionTarget.dataset.segmentIndex);
+        list.splice(index, 1);
+    }
+    room.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    renderSelection();
+}
+
+function buildDefaultSegment(kind) {
+    if (kind === "walls") {
+        return { edge: "top", start_ratio: 0, end_ratio: 1 };
+    }
+    if (kind === "doors") {
+        return { edge: "bottom", start_ratio: 0.38, end_ratio: 0.62 };
+    }
+    return { edge: "top", start_ratio: 0.2, end_ratio: 0.8 };
+}
+
+function applyStairWidthValue(room, widthFeet) {
+    const house = state.assessment?.objects?.housePlan?.properties || {};
+    const linearUnit = String(room.properties.linear_unit || "feet");
+    const direction = String(room.properties.stair_direction || "up");
+    const clampedFeet = clamp(Number(widthFeet || 3), 3, 6);
+    const widthValue = linearUnit === "meters" ? clampedFeet / 3.28084 : clampedFeet;
+    const houseWidth = Math.max(Number(house.width || 0), 1);
+    const houseHeight = Math.max(Number(house.height || 0), 1);
+
+    if (direction === "left" || direction === "right") {
+        room.properties.height = roundValue(widthValue, 2);
+        room.properties.floor_height_ratio = roundValue(widthValue / houseHeight, 4);
+    } else {
+        room.properties.width = roundValue(widthValue, 2);
+        room.properties.floor_width_ratio = roundValue(widthValue / houseWidth, 4);
+    }
+
+    syncRoomPhysicalProperties(room);
+}
+
 function formatAreaValue(area, areaUnit) {
     if (areaUnit === "square feet") {
         return `${formatNumber(Number(area) / 43560)} acre`;
     }
     return `${formatNumber(area)} ${areaUnit}`;
+}
+
+function shouldDisplayProperty(item, key) {
+    if (item.kind === "room") {
+        return !new Set([
+            "generated_floor_room",
+            "floor_x_ratio",
+            "floor_y_ratio",
+            "floor_width_ratio",
+            "floor_height_ratio",
+        ]).has(key);
+    }
+    return true;
+}
+
+function formatPropertyLabel(key) {
+    const customLabels = {
+        stair_clear_width_feet: "Stair Clear Width",
+        stair_width_range: "Allowed Width Range",
+        room_id: "Room ID",
+        room_type: "Room Type",
+        level_name: "Level",
+        area_unit: "Area Unit",
+        linear_unit: "Linear Unit",
+        floor_x_ratio: "Floor X Ratio",
+        floor_y_ratio: "Floor Y Ratio",
+        floor_width_ratio: "Floor Width Ratio",
+        floor_height_ratio: "Floor Height Ratio",
+        stair_direction: "Stair Direction",
+    };
+    return customLabels[key] || titleCase(String(key).replaceAll("_", " "));
 }
 
 function formatPropertyValue(key, value, properties) {
@@ -2453,6 +3008,18 @@ function formatPropertyValue(key, value, properties) {
     }
     if (key === "patio_area_square_feet") {
         return `${formatNumber(value)} sq ft`;
+    }
+    if (key === "stair_clear_width_feet") {
+        return `${formatNumber(value)} ft`;
+    }
+    if (key === "walls") {
+        return formatRoomSegmentSummary(value, "walls");
+    }
+    if (key === "doors") {
+        return formatRoomSegmentSummary(value, "doors");
+    }
+    if (key === "windows") {
+        return formatRoomSegmentSummary(value, "windows");
     }
     return stringifyValue(value);
 }

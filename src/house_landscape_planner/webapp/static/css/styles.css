@@ -749,6 +749,68 @@ input {
     word-break: break-word;
 }
 
+.segment-editor {
+    display: grid;
+    gap: 8px;
+}
+
+.segment-editor-summary,
+.segment-empty {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+.segment-editor-list {
+    display: grid;
+    gap: 8px;
+}
+
+.segment-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 72px auto 72px auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.segment-row select,
+.segment-row input {
+    min-width: 0;
+    width: 100%;
+}
+
+.segment-separator {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.segment-add,
+.segment-remove {
+    justify-self: start;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel-soft);
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.stair-width-editor {
+    display: inline-grid;
+    grid-template-columns: 88px auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.stair-width-editor input {
+    width: 100%;
+}
+
+.stair-width-unit {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+}
+
 .metrics-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1024,6 +1086,11 @@ input {
     cursor: pointer;
 }
 
+.floor-room.stair-room {
+    fill: rgba(214, 168, 79, 0.14);
+    stroke: rgba(230, 191, 103, 0.96);
+}
+
 .floor-room.selected {
     fill: rgba(147, 201, 255, 0.08);
     stroke: var(--accent);
@@ -1041,6 +1108,39 @@ input {
     stroke: #f3e3b8;
     stroke-width: 1.8;
     cursor: nwse-resize;
+}
+
+.floor-room-edge-handle {
+    fill: #93c9ff;
+    stroke: #f3e3b8;
+    stroke-width: 1.4;
+    cursor: pointer;
+}
+
+.room-wall-segment {
+    stroke: rgba(147, 201, 255, 0.92);
+    stroke-width: 2.2;
+}
+
+.room-door {
+    stroke: #f2c879;
+    stroke-width: 2.2;
+}
+
+.room-window {
+    stroke: #9fe2d8;
+    stroke-width: 2.2;
+}
+
+.stair-step {
+    stroke: rgba(230, 191, 103, 0.92);
+    stroke-width: 1.6;
+}
+
+.stair-arrow {
+    stroke: rgba(248, 230, 182, 0.96);
+    stroke-width: 1.8;
+    fill: none;
 }
 
 .floor-room-label {
@@ -1074,7 +1174,13 @@ input {
 .floor-virtual-line,
 .floor-room,
 .floor-room-outline,
-.floor-room-handle {
+.floor-room-handle,
+.floor-room-edge-handle,
+.room-wall-segment,
+.room-door,
+.room-window,
+.stair-step,
+.stair-arrow {
     vector-effect: non-scaling-stroke;
 }
 
@@ -1133,5 +1239,13 @@ input {
     .zoom-slider {
         width: 100%;
         min-width: 96px;
+    }
+
+    .segment-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .segment-separator {
+        display: none;
     }
 }
