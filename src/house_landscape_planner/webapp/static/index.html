@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=20">
+    <link rel="stylesheet" href="/static/css/styles.css?v=21">
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.umd.min.js"></script>
     <script>
         (function () {
@@ -26,7 +26,7 @@
                 <div>
                     <p class="eyebrow">House Plan Toolset</p>
                     <h1>Parcel Navigator</h1>
-                    <p class="header-text">Three-panel property review with catalog, interactive detail view, and property inspector.</p>
+                    <p class="header-text">Three-panel property review with catalog, map, and inspector.</p>
                 </div>
             </div>
             <div class="header-actions">
@@ -172,22 +172,22 @@
                     <div class="nav-section">
                         <button class="nav-section-header" data-section-toggle="feature-list" type="button" aria-expanded="true">
                             <span class="section-toggle">▼</span>
-                            <span class="section-title">Garden Design</span>
+                            <span class="section-title">Garden</span>
                             <span class="section-count" id="feature-count">0</span>
                         </button>
                         <div id="feature-list" class="catalog-list">
-                            <div class="placeholder">Garden design features will appear here.</div>
+                            <div class="placeholder">Garden features will appear here.</div>
                         </div>
                     </div>
 
                     <div class="nav-section">
                         <button class="nav-section-header" data-section-toggle="patio-list" type="button" aria-expanded="true">
                             <span class="section-toggle">▼</span>
-                            <span class="section-title">Patio Design</span>
+                            <span class="section-title">Patio</span>
                             <span class="section-count" id="patio-count">0</span>
                         </button>
                         <div id="patio-list" class="catalog-list">
-                            <div class="placeholder">Patio design features will appear here.</div>
+                            <div class="placeholder">Patio features will appear here.</div>
                         </div>
                     </div>
 
@@ -220,8 +220,8 @@
             <section class="middle-panel">
                 <div class="panel-toolbar">
                     <div>
-                        <p class="eyebrow">Detail</p>
-                        <h2 id="detail-title">Parcel detail view</h2>
+                        <p class="eyebrow">View</p>
+                        <h2 id="detail-title">Parcel</h2>
                         <p class="detail-subtitle" id="detail-subtitle">Select a parcel object from the left panel or the diagram.</p>
                     </div>
                     <div class="detail-tags" id="detail-tags">
@@ -241,9 +241,9 @@
                 </div>
 
                 <div class="view-toggle" aria-label="Middle panel views">
-                    <button class="view-toggle-button active" id="view-parcel" type="button">Parcel Detail</button>
-                    <button class="view-toggle-button" id="view-garden" type="button">Garden Design</button>
-                    <button class="view-toggle-button" id="view-patio" type="button">Patio Design</button>
+                    <button class="view-toggle-button active" id="view-parcel" type="button">Parcel</button>
+                    <button class="view-toggle-button" id="view-garden" type="button">Garden</button>
+                    <button class="view-toggle-button" id="view-patio" type="button">Patio</button>
                     <button class="view-toggle-button" id="view-basement" type="button">Basement</button>
                     <button class="view-toggle-button" id="view-first-floor" type="button">First Floor</button>
                     <button class="view-toggle-button" id="view-second-floor" type="button">Second Floor</button>
@@ -258,13 +258,13 @@
 
                     <div class="view-panel" id="garden-view-panel">
                         <div class="detail-canvas" id="garden-canvas">
-                            <div class="placeholder">Garden design diagram will appear here.</div>
+                            <div class="placeholder">Garden view will appear here.</div>
                         </div>
                     </div>
 
                     <div class="view-panel" id="patio-view-panel">
                         <div class="detail-canvas" id="patio-canvas">
-                            <div class="placeholder">Patio design diagram will appear here.</div>
+                            <div class="placeholder">Patio view will appear here.</div>
                         </div>
                     </div>
 
@@ -351,6 +351,6 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=40"></script>
+    <script src="/static/js/app.js?v=41"></script>
 </body>
 </html>

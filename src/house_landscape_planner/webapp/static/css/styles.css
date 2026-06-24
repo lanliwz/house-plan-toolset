@@ -1118,8 +1118,8 @@ input {
 }
 
 .room-wall-segment {
-    stroke: rgba(147, 201, 255, 0.92);
-    stroke-width: 2.2;
+    fill: rgba(147, 201, 255, 0.92);
+    stroke: none;
 }
 
 .room-door {

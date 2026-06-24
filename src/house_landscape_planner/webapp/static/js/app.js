@@ -370,6 +370,7 @@ function setupFloorPlanEditing() {
             }
 
             const shellBox = buildFloorShellBox(state.assessment.house_plan_points || []);
+            const shellShape = buildFloorShellShape(shellBox, state.assessment.objects.rooms || [], levelKey);
             const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
             state.floorPlanInteraction = {
                 roomId: room.id,
@@ -383,7 +384,7 @@ function setupFloorPlanEditing() {
                     width: Number(room.properties.floor_width_ratio || 0.3),
                     height: Number(room.properties.floor_height_ratio || 0.2),
                 },
-                shellBox,
+                shellShape,
             };
 
             if (typeof target.setPointerCapture === "function") {
@@ -726,9 +727,9 @@ function syncHousePlanObjects(payload) {
         return;
     }
 
-    const bounds = getSourceBounds(housePoints);
-    const width = roundValue(bounds.maxX - bounds.minX, 2);
-    const height = roundValue(bounds.maxY - bounds.minY, 2);
+    const footprintDimensions = getFootprintLengthWidth(housePoints);
+    const width = roundValue(footprintDimensions.width, 2);
+    const height = roundValue(footprintDimensions.length, 2);
     const area = roundValue(computePolygonArea(housePoints), 2);
     const perimeter = roundValue(computePolygonPerimeter(housePoints), 2);
 
@@ -799,12 +800,24 @@ function renderCatalog() {
         housePlan,
         houseVertices = [],
     } = state.assessment.objects;
+    const hasFloorShell = Boolean(housePlan) && Array.isArray(state.assessment.house_plan_points) && state.assessment.house_plan_points.length >= 3;
+    let floorPlans = [];
+    if (hasFloorShell) {
+        try {
+            floorPlans = ["basement", "first-floor", "second-floor"]
+                .map((levelKey) => buildFloorPlanSelection(levelKey))
+                .filter(Boolean);
+        } catch (error) {
+            console.error("Unable to build floor plan catalog items", error);
+            floorPlans = [];
+        }
+    }
     const patioFeatures = getPatioFeatures();
     document.getElementById("parcel-count").textContent = "1";
     document.getElementById("contour-count").textContent = String(contours.length);
     document.getElementById("edge-count").textContent = String(edges.length);
     document.getElementById("vertex-count").textContent = String(vertices.length);
-    document.getElementById("house-plan-count").textContent = housePlan ? "1" : "0";
+    document.getElementById("house-plan-count").textContent = String((housePlan ? 1 : 0) + floorPlans.length);
     document.getElementById("house-vertex-count").textContent = String(houseVertices.length);
     document.getElementById("room-count").textContent = String(rooms.length);
     document.getElementById("utility-count").textContent = String(utilities.length);
@@ -818,7 +831,7 @@ function renderCatalog() {
     document.getElementById("edge-list").innerHTML = edges.map(renderCatalogItem).join("");
     document.getElementById("vertex-list").innerHTML = vertices.map(renderCatalogItem).join("");
     document.getElementById("house-plan-list").innerHTML = housePlan
-        ? renderCatalogItem(housePlan)
+        ? [renderCatalogItem(housePlan), ...floorPlans.map(renderCatalogItem)].join("")
         : '<div class="placeholder">Add a house object to start editing the footprint.</div>';
     document.getElementById("house-vertex-list").innerHTML = houseVertices.length
         ? houseVertices.map(renderCatalogItem).join("")
@@ -860,6 +873,8 @@ function setSelection(kind, id) {
     } else if (kind === "room") {
         const room = state.assessment?.objects.rooms.find((item) => item.id === id) || null;
         state.activeView = room ? mapLevelNameToView(room.properties.level_name) : "first-floor";
+    } else if (kind === "floor-plan") {
+        state.activeView = id;
     } else {
         state.activeView = "parcel";
     }
@@ -1124,7 +1139,7 @@ function buildFloorPlanSvg(data, levelKey) {
             </clipPath>
         </defs>
         <rect class="floor-grid-surface" width="${shellBox.canvasWidth}" height="${shellBox.canvasHeight}" fill="url(#floor-grid-${levelKey})"></rect>
-        <polygon class="floor-shell" data-kind="house" data-id="house" points="${shellShape.polygonPoints}"></polygon>
+        <polygon class="floor-shell" data-kind="floor-plan" data-id="${levelKey}" points="${shellShape.polygonPoints}"></polygon>
         ${virtualGarageMarkup}
         <g clip-path="url(#floor-shell-clip-${levelKey})">
             ${roomMarkup}
@@ -1361,18 +1376,18 @@ function buildRoomOpeningMarkup(room, x, y, width, height) {
     const walls = Array.isArray(room.properties.walls) ? room.properties.walls : [];
     const doors = Array.isArray(room.properties.doors) ? room.properties.doors : [];
     const windows = Array.isArray(room.properties.windows) ? room.properties.windows : [];
-    const wallMarkup = walls.map((wall) => buildWallSegmentMarkup(wall, x, y, width, height)).join("");
+    const wallMarkup = walls.map((wall) => buildWallSegmentMarkup(room, wall, x, y, width, height)).join("");
     const doorMarkup = doors.map((door) => buildOpeningSegmentMarkup(door, x, y, width, height, "room-door")).join("");
     const windowMarkup = windows.map((windowItem) => buildOpeningSegmentMarkup(windowItem, x, y, width, height, "room-window")).join("");
     return `${wallMarkup}${doorMarkup}${windowMarkup}`;
 }
 
-function buildWallSegmentMarkup(wall, x, y, width, height) {
-    const segment = buildEdgeSegmentFromPlacement(wall, x, y, width, height);
-    if (!segment) {
+function buildWallSegmentMarkup(room, wall, x, y, width, height) {
+    const rect = buildWallRectFromPlacement(room, wall, x, y, width, height);
+    if (!rect) {
         return "";
     }
-    return `<line class="room-wall-segment" x1="${segment.x1.toFixed(1)}" y1="${segment.y1.toFixed(1)}" x2="${segment.x2.toFixed(1)}" y2="${segment.y2.toFixed(1)}"></line>`;
+    return `<rect class="room-wall-segment" x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"></rect>`;
 }
 
 function buildOpeningSegmentMarkup(item, x, y, width, height, className) {
@@ -1398,6 +1413,61 @@ function buildEdgeSegmentFromPlacement(item, x, y, width, height) {
     }
     if (edge === "right") {
         return { x1: x + width, y1: y + (height * start), x2: x + width, y2: y + (height * end) };
+    }
+    return null;
+}
+
+function buildWallRectFromPlacement(room, wall, x, y, width, height) {
+    const edge = String(wall?.edge || "top");
+    const start = clamp(Number(wall?.start_ratio ?? 0), 0, 1);
+    const end = clamp(Number(wall?.end_ratio ?? 1), 0, 1);
+    const roomWidthFeet = Math.max(Number(room?.properties?.width || 0), 0.01);
+    const roomHeightFeet = Math.max(Number(room?.properties?.height || 0), 0.01);
+    const wallThicknessFeet = 0.5;
+    const thicknessX = Math.max((width / roomWidthFeet) * wallThicknessFeet, 1);
+    const thicknessY = Math.max((height / roomHeightFeet) * wallThicknessFeet, 1);
+    const insetX = thicknessX / 2;
+    const insetY = thicknessY / 2;
+
+    if (edge === "top") {
+        const startX = Math.max(x, x + (width * start) - insetX);
+        const endX = Math.min(x + width, x + (width * end) + insetX);
+        return {
+            x: startX,
+            y,
+            width: Math.max(endX - startX, 1),
+            height: thicknessY,
+        };
+    }
+    if (edge === "bottom") {
+        const startX = Math.max(x, x + (width * start) - insetX);
+        const endX = Math.min(x + width, x + (width * end) + insetX);
+        return {
+            x: startX,
+            y: y + height - thicknessY,
+            width: Math.max(endX - startX, 1),
+            height: thicknessY,
+        };
+    }
+    if (edge === "left") {
+        const startY = Math.max(y, y + (height * start) - insetY);
+        const endY = Math.min(y + height, y + (height * end) + insetY);
+        return {
+            x,
+            y: startY,
+            width: thicknessX,
+            height: Math.max(endY - startY, 1),
+        };
+    }
+    if (edge === "right") {
+        const startY = Math.max(y, y + (height * start) - insetY);
+        const endY = Math.min(y + height, y + (height * end) + insetY);
+        return {
+            x: x + width - thicknessX,
+            y: startY,
+            width: thicknessX,
+            height: Math.max(endY - startY, 1),
+        };
     }
     return null;
 }
@@ -1670,12 +1740,23 @@ function handleGardenPointerMove(event) {
         height_ratio: roundValue(nextHeightRatio, 4),
         rotation_degrees: roundValue(nextRotation, 2),
     });
-    renderSelection();
+    state.gardenInteraction.startPointer = pointer;
+    state.gardenInteraction.startProperties = {
+        anchor_x_ratio: feature.properties.anchor_x_ratio,
+        anchor_y_ratio: feature.properties.anchor_y_ratio,
+        width_ratio: feature.properties.width_ratio,
+        height_ratio: feature.properties.height_ratio,
+        rotation_degrees: feature.properties.rotation_degrees,
+    };
+    renderInteractiveDiagram();
 }
 
 function stopGardenInteraction(event) {
     if (event && state.gardenInteraction && event.pointerId !== state.gardenInteraction.pointerId) {
         return;
+    }
+    if (state.gardenInteraction && state.selectedKind === "feature" && state.selectedId === state.gardenInteraction.featureId) {
+        renderSelection();
     }
     state.gardenInteraction = null;
 }
@@ -1700,8 +1781,8 @@ function handleFloorPlanPointerMove(event) {
         return;
     }
 
-    const deltaX = (pointer.x - state.floorPlanInteraction.startPointer.x) / state.floorPlanInteraction.shellBox.width;
-    const deltaY = (pointer.y - state.floorPlanInteraction.startPointer.y) / state.floorPlanInteraction.shellBox.height;
+    const deltaX = (pointer.x - state.floorPlanInteraction.startPointer.x) / state.floorPlanInteraction.shellShape.width;
+    const deltaY = (pointer.y - state.floorPlanInteraction.startPointer.y) / state.floorPlanInteraction.shellShape.height;
     let nextX = state.floorPlanInteraction.startLayout.x;
     let nextY = state.floorPlanInteraction.startLayout.y;
     let nextWidth = state.floorPlanInteraction.startLayout.width;
@@ -1709,13 +1790,13 @@ function handleFloorPlanPointerMove(event) {
     const sizeLimits = getRoomResizeLimits(room);
 
     if (state.floorPlanInteraction.mode === "move-room") {
-        nextX = clamp(nextX + deltaX, 0.02, 0.98 - nextWidth);
-        nextY = clamp(nextY + deltaY, 0.02, 0.98 - nextHeight);
+        nextX = clamp(nextX + deltaX, 0, 1 - nextWidth);
+        nextY = clamp(nextY + deltaY, 0, 1 - nextHeight);
     } else if (state.floorPlanInteraction.mode === "resize-left") {
         const right = nextX + nextWidth;
         const newLeft = clamp(
             nextX + deltaX,
-            Math.max(0.02, right - sizeLimits.maxWidthRatio),
+            Math.max(0, right - sizeLimits.maxWidthRatio),
             right - sizeLimits.minWidth,
         );
         nextWidth = (nextX + nextWidth) - newLeft;
@@ -1726,7 +1807,7 @@ function handleFloorPlanPointerMove(event) {
         const bottom = nextY + nextHeight;
         const newTop = clamp(
             nextY + deltaY,
-            Math.max(0.02, bottom - sizeLimits.maxHeightRatio),
+            Math.max(0, bottom - sizeLimits.maxHeightRatio),
             bottom - sizeLimits.minHeight,
         );
         nextHeight = (nextY + nextHeight) - newTop;
@@ -1742,14 +1823,46 @@ function handleFloorPlanPointerMove(event) {
     room.properties.floor_y_ratio = roundValue(nextY, 4);
     room.properties.floor_width_ratio = roundValue(nextWidth, 4);
     room.properties.floor_height_ratio = roundValue(nextHeight, 4);
-    syncRoomPhysicalProperties(room);
 
-    renderSelection();
+    state.floorPlanInteraction.startPointer = pointer;
+    state.floorPlanInteraction.startLayout = {
+        x: room.properties.floor_x_ratio,
+        y: room.properties.floor_y_ratio,
+        width: room.properties.floor_width_ratio,
+        height: room.properties.floor_height_ratio,
+    };
+
+    renderInteractiveDiagram();
+}
+
+function snapRoomPositionToShellEdges(shellShape, position, widthRatio, heightRatio) {
+    const snapPixels = 6;
+    const snapX = snapPixels / Math.max(shellShape.width, 1);
+    const snapY = snapPixels / Math.max(shellShape.height, 1);
+    let nextX = position.x;
+    let nextY = position.y;
+    const right = nextX + widthRatio;
+    const bottom = nextY + heightRatio;
+
+    if (Math.abs(nextX) <= snapX) {
+        nextX = 0;
+    }
+    if (Math.abs(nextY) <= snapY) {
+        nextY = 0;
+    }
+    if (Math.abs(1 - right) <= snapX) {
+        nextX = 1 - widthRatio;
+    }
+    if (Math.abs(1 - bottom) <= snapY) {
+        nextY = 1 - heightRatio;
+    }
+
+    return { x: roundValue(nextX, 4), y: roundValue(nextY, 4) };
 }
 
 function getRoomResizeLimits(room) {
     const defaultMin = 0.12;
-    const maxBound = 0.96;
+    const maxBound = 1;
     const house = state.assessment?.objects?.housePlan?.properties || {};
     const houseWidth = Math.max(Number(house.width || 0), 1);
     const houseHeight = Math.max(Number(house.height || 0), 1);
@@ -1785,6 +1898,17 @@ function stopFloorPlanInteraction(event) {
     if (event && state.floorPlanInteraction && event.pointerId !== state.floorPlanInteraction.pointerId) {
         return;
     }
+    if (state.floorPlanInteraction && state.assessment) {
+        const room = state.assessment.objects.rooms.find((item) => item.id === state.floorPlanInteraction.roomId);
+        if (room) {
+            syncRoomPhysicalProperties(room);
+        }
+        if (room && state.selectedKind === "room" && state.selectedId === room.id) {
+            renderSelection();
+        } else {
+            renderInteractiveDiagram();
+        }
+    }
     state.floorPlanInteraction = null;
 }
 
@@ -1808,22 +1932,28 @@ function handleHousePlanPointerMove(event) {
     const { bounds, mode, pointIndex, startPoints } = state.housePlanInteraction;
 
     if (mode === "move-plan") {
-        updateHousePlanPoints(clampTranslatedHousePlan(startPoints, deltaX, deltaY, bounds));
+        state.assessment.house_plan_points = clampTranslatedHousePlan(startPoints, deltaX, deltaY, bounds);
     } else if (mode === "move-vertex") {
         const nextPoints = startPoints.map((point) => [...point]);
         nextPoints[pointIndex] = [
             roundValue(clamp(startPoints[pointIndex][0] + deltaX, bounds.minX, bounds.maxX), 4),
             roundValue(clamp(startPoints[pointIndex][1] + deltaY, bounds.minY, bounds.maxY), 4),
         ];
-        updateHousePlanPoints(nextPoints);
+        state.assessment.house_plan_points = nextPoints;
     }
 
-    renderSelection();
+    state.housePlanInteraction.startPointer = pointer;
+    state.housePlanInteraction.startPoints = state.assessment.house_plan_points.map((point) => [...point]);
+    renderInteractiveDiagram();
 }
 
 function stopHousePlanInteraction(event) {
     if (event && state.housePlanInteraction && event.pointerId !== state.housePlanInteraction.pointerId) {
         return;
+    }
+    if (state.housePlanInteraction && state.assessment) {
+        syncHousePlanObjects(state.assessment);
+        renderSelection();
     }
     state.housePlanInteraction = null;
 }
@@ -1922,6 +2052,24 @@ function getSourceBounds(points) {
         minY: Math.min(...ys),
         maxY: Math.max(...ys),
     };
+}
+
+function getFootprintLengthWidth(points) {
+    const normalized = normalizePolygonPoints(points);
+    if (normalized.length < 3) {
+        return { width: 0, length: 0 };
+    }
+
+    const centroid = getPolygonCentroid(normalized);
+    const angle = getLongestEdgeAngle(normalized);
+    const rotated = rotateSourcePoints(normalized, -angle, centroid);
+    const bounds = getSourceBounds(rotated);
+    const spanX = Math.max(bounds.maxX - bounds.minX, 0);
+    const spanY = Math.max(bounds.maxY - bounds.minY, 0);
+
+    return spanX >= spanY
+        ? { width: spanY, length: spanX }
+        : { width: spanX, length: spanY };
 }
 
 function computePolygonArea(points) {
@@ -2108,6 +2256,9 @@ function buildDetailTags(item) {
     if (item.kind === "parcel") {
         tags.push(`<span class="detail-chip">${escapeHtml(state.assessment.geometry_type)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(state.assessment.metrics.area, state.assessment.metrics.area_unit))}</span>`);
+    } else if (item.kind === "floor-plan") {
+        tags.push(`<span class="detail-chip">${escapeHtml(String(item.properties.room_count))} rooms</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(formatNumber(item.properties.total_area_square_feet))} sq ft</span>`);
     } else if (item.kind === "house") {
         tags.push(`<span class="detail-chip">${escapeHtml(String(item.properties.vertex_count))} vertices</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</span>`);
@@ -2182,8 +2333,22 @@ function buildSelectionSummary(item) {
             <ul class="selection-list">
                 <li>Edges: ${escapeHtml(String(item.properties.edge_count))}</li>
                 <li>Width: ${escapeHtml(formatNumber(item.properties.width))} ${escapeHtml(item.properties.linear_unit)}</li>
-                <li>Height: ${escapeHtml(formatNumber(item.properties.height))} ${escapeHtml(item.properties.linear_unit)}</li>
+                <li>Length: ${escapeHtml(formatNumber(item.properties.height))} ${escapeHtml(item.properties.linear_unit)}</li>
                 <li>Area: ${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</li>
+            </ul>
+        `;
+    }
+
+    if (item.kind === "floor-plan") {
+        return `
+            <p>${escapeHtml(item.description)}</p>
+            <ul class="selection-list">
+                <li>Level: ${escapeHtml(item.properties.level_name)}</li>
+                <li>Total area: ${escapeHtml(formatNumber(item.properties.total_area_square_feet))} sq ft</li>
+                <li>Rooms: ${escapeHtml(String(item.properties.room_count))}</li>
+                <li>Stairs: ${escapeHtml(String(item.properties.stair_count))}</li>
+                <li>Footprint walls: ${escapeHtml(String(item.properties.wall_count))}</li>
+                <li>Shell size: ${escapeHtml(formatNumber(item.properties.shell_width))} x ${escapeHtml(formatNumber(item.properties.shell_height))} ${escapeHtml(item.properties.linear_unit)}</li>
             </ul>
         `;
     }
@@ -2335,8 +2500,8 @@ function renderZonesSummary() {
         <li><strong>${escapeHtml(feature.name)}:</strong> ${escapeHtml(feature.zone_name)} | ${escapeHtml(feature.priority)} priority</li>
     `).join("");
     document.getElementById("zones-summary").innerHTML = `
-        <p>${escapeHtml(String(state.assessment.landscape_features.length))} garden design features are mapped onto the current parcel.</p>
-        <p><strong>Garden design program</strong></p>
+        <p>${escapeHtml(String(state.assessment.landscape_features.length))} garden features are mapped onto the current parcel.</p>
+        <p><strong>Garden Program</strong></p>
         <ul class="selection-list">${featureMarkup}</ul>
         <p><strong>Next data to collect</strong></p>
         <ul class="selection-list">${nextData}</ul>
@@ -2363,6 +2528,9 @@ function getSelectedObject() {
     if (state.selectedKind === "parcel") {
         return state.assessment.objects.parcel;
     }
+    if (state.selectedKind === "floor-plan") {
+        return buildFloorPlanSelection(state.selectedId);
+    }
     if (state.selectedKind === "house") {
         return state.assessment.objects.housePlan;
     }
@@ -2388,6 +2556,52 @@ function getSelectedObject() {
         return state.assessment.objects.features.find((item) => item.id === state.selectedId) || null;
     }
     return null;
+}
+
+function buildFloorPlanSelection(levelKey) {
+    if (
+        !state.assessment
+        || !["basement", "first-floor", "second-floor"].includes(levelKey)
+        || !state.assessment.objects?.housePlan
+        || !Array.isArray(state.assessment.house_plan_points)
+        || state.assessment.house_plan_points.length < 3
+    ) {
+        return null;
+    }
+
+    const levelLabel = getFloorLevelLabel(levelKey);
+    const rooms = (state.assessment.objects.rooms || []).filter((room) => roomBelongsToFloor(room, levelKey));
+    const stairCount = rooms.filter((room) => String(room.properties.room_type || "").toLowerCase() === "stair").length;
+    const shellBox = buildFloorShellBox(state.assessment.house_plan_points || []);
+    const shellShape = buildFloorShellShape(shellBox, state.assessment.objects.rooms || [], levelKey);
+    const houseLinearUnit = state.assessment.objects.housePlan?.properties?.linear_unit || "feet";
+    const houseArea = Number(state.assessment.objects.housePlan?.properties?.area || 0);
+    const fullFootprintWidth = Number(state.assessment.objects.housePlan?.properties?.width || 0);
+    const fullFootprintHeight = Number(state.assessment.objects.housePlan?.properties?.height || 0);
+    const levelShellWidth = shellBox.width > 0 ? fullFootprintWidth * (shellShape.width / shellBox.width) : fullFootprintWidth;
+    const levelShellHeight = shellBox.height > 0 ? fullFootprintHeight * (shellShape.height / shellBox.height) : fullFootprintHeight;
+    const fullShellArea = computePolygonArea(shellBox.vertexPoints || []);
+    const levelShellAreaRatio = fullShellArea > 0 ? computePolygonArea(shellShape.vertexPoints || []) / fullShellArea : 0;
+    const totalAreaSquareFeet = houseArea * levelShellAreaRatio;
+
+    return {
+        id: levelKey,
+        kind: "floor-plan",
+        label: `${levelLabel} Plan`,
+        subtitle: `${rooms.length} rooms | ${formatNumber(totalAreaSquareFeet)} sq ft`,
+        description: `Blueprint overview for the ${levelLabel.toLowerCase()} floor.`,
+        properties: {
+            level_name: levelLabel,
+            total_area_square_feet: roundValue(totalAreaSquareFeet, 2),
+            room_count: rooms.length,
+            stair_count: stairCount,
+            wall_count: shellShape.vertexPoints.length,
+            shell_width: roundValue(levelShellWidth, 2),
+            shell_height: roundValue(levelShellHeight, 2),
+            linear_unit: houseLinearUnit,
+            room_names: rooms.map((room) => room.label),
+        },
+    };
 }
 
 function updateFeatureActions() {
@@ -2623,16 +2837,16 @@ function resetResults() {
     document.getElementById("house-vertex-list").innerHTML = '<div class="placeholder">House footprint vertices will appear here.</div>';
     document.getElementById("room-list").innerHTML = '<div class="placeholder">Room objects will appear here.</div>';
     document.getElementById("utility-list").innerHTML = '<div class="placeholder">Utility connections will appear here.</div>';
-    document.getElementById("feature-list").innerHTML = '<div class="placeholder">Garden design features will appear here.</div>';
-    document.getElementById("patio-list").innerHTML = '<div class="placeholder">Patio design features will appear here.</div>';
+    document.getElementById("feature-list").innerHTML = '<div class="placeholder">Garden features will appear here.</div>';
+    document.getElementById("patio-list").innerHTML = '<div class="placeholder">Patio features will appear here.</div>';
     document.getElementById("assumptions-list").innerHTML = '<li class="placeholder-line">No assumptions loaded yet.</li>';
     document.getElementById("recommendations-list").innerHTML = '<li class="placeholder-line">No recommendations loaded yet.</li>';
-    document.getElementById("detail-title").textContent = "Parcel detail view";
+    document.getElementById("detail-title").textContent = "Parcel";
     document.getElementById("detail-subtitle").textContent = "Select a parcel object from the left panel or the diagram.";
     document.getElementById("detail-tags").innerHTML = '<span class="detail-chip">No object selected</span>';
-    document.getElementById("detail-canvas").innerHTML = '<div class="placeholder">Interactive parcel diagram will appear here.</div>';
-    document.getElementById("garden-canvas").innerHTML = '<div class="placeholder">Garden design diagram will appear here.</div>';
-    document.getElementById("patio-canvas").innerHTML = '<div class="placeholder">Patio design diagram will appear here.</div>';
+    document.getElementById("detail-canvas").innerHTML = '<div class="placeholder">Parcel view will appear here.</div>';
+    document.getElementById("garden-canvas").innerHTML = '<div class="placeholder">Garden view will appear here.</div>';
+    document.getElementById("patio-canvas").innerHTML = '<div class="placeholder">Patio view will appear here.</div>';
     document.getElementById("basement-canvas").innerHTML = '<div class="placeholder">Basement floor plan will appear here.</div>';
     document.getElementById("first-floor-canvas").innerHTML = '<div class="placeholder">First floor plan will appear here.</div>';
     document.getElementById("second-floor-canvas").innerHTML = '<div class="placeholder">Second floor plan will appear here.</div>';
@@ -2979,6 +3193,13 @@ function formatPropertyLabel(key) {
     const customLabels = {
         stair_clear_width_feet: "Stair Clear Width",
         stair_width_range: "Allowed Width Range",
+        total_area_square_feet: "Shell Area",
+        room_count: "Number of Rooms",
+        stair_count: "Number of Stairs",
+        wall_count: "Number of Walls",
+        shell_width: "Shell Width",
+        shell_height: "Shell Length",
+        room_names: "Rooms",
         room_id: "Room ID",
         room_type: "Room Type",
         level_name: "Level",
@@ -2997,10 +3218,13 @@ function formatPropertyValue(key, value, properties) {
     if (key === "area") {
         return formatAreaValue(value, properties.area_unit);
     }
+    if (key === "total_area_square_feet") {
+        return `${formatNumber(value)} sq ft`;
+    }
     if (key === "area_unit" && properties.area_unit === "square feet") {
         return "acre";
     }
-    if ((key === "width" || key === "height" || key === "perimeter") && properties.linear_unit) {
+    if ((key === "width" || key === "height" || key === "perimeter" || key === "shell_width" || key === "shell_height") && properties.linear_unit) {
         return `${formatNumber(value)} ${properties.linear_unit}`;
     }
     if (key === "patio_length_feet" || key === "patio_width_feet") {
@@ -3020,6 +3244,9 @@ function formatPropertyValue(key, value, properties) {
     }
     if (key === "windows") {
         return formatRoomSegmentSummary(value, "windows");
+    }
+    if (key === "room_names" && Array.isArray(value)) {
+        return value.join(", ");
     }
     return stringifyValue(value);
 }
