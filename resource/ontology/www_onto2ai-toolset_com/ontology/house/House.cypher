@@ -6,26 +6,40 @@
 // Class: house
 // Definition: A residential building located on a parcel and planned as part of the property lifecycle.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#House
-// Mandatory property: houseId
+// Mandatory properties: houseId, source
 CREATE CONSTRAINT House_houseId_Required IF NOT EXISTS FOR (n:`House`) REQUIRE n.`houseId` IS NOT NULL;
+CREATE CONSTRAINT House_source_Required IF NOT EXISTS FOR (n:`House`) REQUIRE n.`source` IS NOT NULL;
 
 // Class: building footprint
 // Definition: A polygonal representation of the house outline used for siting, access, and outdoor design coordination.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#BuildingFootprint
-// Mandatory property: footprintId
+// Mandatory properties: footprintId, coordinateSequenceJson, coordinateSequenceText
 CREATE CONSTRAINT BuildingFootprint_footprintId_Required IF NOT EXISTS FOR (n:`BuildingFootprint`) REQUIRE n.`footprintId` IS NOT NULL;
+CREATE CONSTRAINT BuildingFootprint_coordinateSequenceJson_Required IF NOT EXISTS FOR (n:`BuildingFootprint`) REQUIRE n.`coordinateSequenceJson` IS NOT NULL;
+CREATE CONSTRAINT BuildingFootprint_coordinateSequenceText_Required IF NOT EXISTS FOR (n:`BuildingFootprint`) REQUIRE n.`coordinateSequenceText` IS NOT NULL;
 
 // Class: floor plan
 // Definition: A level-specific interior planning view derived from the house footprint and used to position rooms, stairs, and interior openings.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#FloorPlan
-// Mandatory property: planId
+// Mandatory properties: planId, floorPlanLevelName
 CREATE CONSTRAINT FloorPlan_planId_Required IF NOT EXISTS FOR (n:`FloorPlan`) REQUIRE n.`planId` IS NOT NULL;
+CREATE CONSTRAINT FloorPlan_floorPlanLevelName_Required IF NOT EXISTS FOR (n:`FloorPlan`) REQUIRE n.`floorPlanLevelName` IS NOT NULL;
 
 // Class: room
 // Definition: An interior space within a house used for a functional domestic purpose.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#Room
-// Mandatory property: roomId
+// Mandatory properties: roomId, roomType, levelName, area, areaUnit, width, height, linearUnit, wallLayoutJson, doorLayoutJson, windowLayoutJson
 CREATE CONSTRAINT Room_roomId_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`roomId` IS NOT NULL;
+CREATE CONSTRAINT Room_roomType_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`roomType` IS NOT NULL;
+CREATE CONSTRAINT Room_levelName_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`levelName` IS NOT NULL;
+CREATE CONSTRAINT Room_area_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`area` IS NOT NULL;
+CREATE CONSTRAINT Room_areaUnit_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`areaUnit` IS NOT NULL;
+CREATE CONSTRAINT Room_width_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`width` IS NOT NULL;
+CREATE CONSTRAINT Room_height_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`height` IS NOT NULL;
+CREATE CONSTRAINT Room_linearUnit_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`linearUnit` IS NOT NULL;
+CREATE CONSTRAINT Room_wallLayoutJson_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`wallLayoutJson` IS NOT NULL;
+CREATE CONSTRAINT Room_doorLayoutJson_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`doorLayoutJson` IS NOT NULL;
+CREATE CONSTRAINT Room_windowLayoutJson_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`windowLayoutJson` IS NOT NULL;
 
 // Class: garage
 // Definition: A room or enclosed vehicular storage area associated with the house footprint and first-floor circulation.
@@ -34,6 +48,8 @@ CREATE CONSTRAINT Room_roomId_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`r
 // Class: stair
 // Definition: A vertical circulation room element connecting basement, first-floor, and second-floor plan levels.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#Stair
+// Mandatory property when label is present: stairDirection
+CREATE CONSTRAINT Stair_stairDirection_Required IF NOT EXISTS FOR (n:`Stair`) REQUIRE n.`stairDirection` IS NOT NULL;
 
 // Class: wall
 // Definition: A boundary element defining one side of a room or separating adjacent interior or exterior spaces.

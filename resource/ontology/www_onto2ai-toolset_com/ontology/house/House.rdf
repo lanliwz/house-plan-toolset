@@ -198,7 +198,7 @@
 
   <owl:DatatypeProperty rdf:about="#source">
     <rdfs:label>source</rdfs:label>
-    <skos:definition>Source system or workflow that created or refreshed the house planning record.</skos:definition>
+    <skos:definition>Source system or workflow that created or refreshed the house planning record and is required for persisted house graph instances.</skos:definition>
     <rdfs:domain rdf:resource="#House"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
@@ -212,14 +212,14 @@
 
   <owl:DatatypeProperty rdf:about="#coordinateSequenceJson">
     <rdfs:label>coordinate sequence json</rdfs:label>
-    <skos:definition>Serialized coordinate sequence for a building footprint polygon.</skos:definition>
+    <skos:definition>Serialized coordinate sequence for a building footprint polygon and required geometry payload for persisted footprint instances.</skos:definition>
     <rdfs:domain rdf:resource="#BuildingFootprint"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
 
   <owl:DatatypeProperty rdf:about="#coordinateSequenceText">
     <rdfs:label>coordinate sequence text</rdfs:label>
-    <skos:definition>Readable text representation of the building footprint coordinate sequence.</skos:definition>
+    <skos:definition>Readable text representation of the building footprint coordinate sequence and required companion form for persisted footprint instances.</skos:definition>
     <rdfs:domain rdf:resource="#BuildingFootprint"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
@@ -233,7 +233,7 @@
 
   <owl:DatatypeProperty rdf:about="#floorPlanLevelName">
     <rdfs:label>floor plan level name</rdfs:label>
-    <skos:definition>Name of the level represented by a floor plan such as basement, first floor, or second floor.</skos:definition>
+    <skos:definition>Name of the level represented by a floor plan such as basement, first floor, or second floor, and required when a floor-plan node is materialized.</skos:definition>
     <rdfs:domain rdf:resource="#FloorPlan"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
@@ -247,14 +247,14 @@
 
   <owl:DatatypeProperty rdf:about="#roomType">
     <rdfs:label>room type</rdfs:label>
-    <skos:definition>Functional room type such as room, stair, garage, bedroom, or living room.</skos:definition>
+    <skos:definition>Functional room type such as room, stair, garage, bedroom, or living room, required for persisted room instances.</skos:definition>
     <rdfs:domain rdf:resource="#Room"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
 
   <owl:DatatypeProperty rdf:about="#levelName">
     <rdfs:label>level name</rdfs:label>
-    <skos:definition>Name of the level on which a room is located.</skos:definition>
+    <skos:definition>Name of the level on which a room is located and required for persisted room instances.</skos:definition>
     <rdfs:domain rdf:resource="#Room"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
@@ -338,21 +338,21 @@
 
   <owl:DatatypeProperty rdf:about="#wallLayoutJson">
     <rdfs:label>wall layout json</rdfs:label>
-    <skos:definition>Serialized representation of room wall segments used by the interactive floor-plan editor.</skos:definition>
+    <skos:definition>Serialized representation of room wall segments used by the interactive floor-plan editor and required for persisted editable room layouts.</skos:definition>
     <rdfs:domain rdf:resource="#Room"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
 
   <owl:DatatypeProperty rdf:about="#doorLayoutJson">
     <rdfs:label>door layout json</rdfs:label>
-    <skos:definition>Serialized representation of room door openings used by the interactive floor-plan editor and rendered as virtual wall segments on room boundaries.</skos:definition>
+    <skos:definition>Serialized representation of room door openings used by the interactive floor-plan editor, rendered as virtual wall segments on room boundaries, and required for persisted editable room layouts.</skos:definition>
     <rdfs:domain rdf:resource="#Room"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
 
   <owl:DatatypeProperty rdf:about="#windowLayoutJson">
     <rdfs:label>window layout json</rdfs:label>
-    <skos:definition>Serialized representation of room window openings used by the interactive floor-plan editor and rendered as virtual wall segments on room boundaries.</skos:definition>
+    <skos:definition>Serialized representation of room window openings used by the interactive floor-plan editor, rendered as virtual wall segments on room boundaries, and required for persisted editable room layouts.</skos:definition>
     <rdfs:domain rdf:resource="#Room"/>
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
