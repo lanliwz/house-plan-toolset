@@ -1123,13 +1123,17 @@ input {
 }
 
 .room-door {
-    stroke: #f2c879;
-    stroke-width: 2.2;
+    fill: rgba(242, 200, 121, 0.12);
+    stroke: rgba(242, 200, 121, 0.95);
+    stroke-width: 1.6;
+    stroke-dasharray: 7 4;
 }
 
 .room-window {
-    stroke: #9fe2d8;
-    stroke-width: 2.2;
+    fill: rgba(159, 226, 216, 0.1);
+    stroke: rgba(159, 226, 216, 0.96);
+    stroke-width: 1.6;
+    stroke-dasharray: 4 3;
 }
 
 .stair-step {

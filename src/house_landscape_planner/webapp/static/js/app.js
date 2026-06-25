@@ -1391,28 +1391,39 @@ function buildWallSegmentMarkup(room, wall, x, y, width, height) {
 }
 
 function buildOpeningSegmentMarkup(item, x, y, width, height, className) {
-    const segment = buildEdgeSegmentFromPlacement(item, x, y, width, height);
-    if (!segment) {
+    const rect = buildOpeningRectFromPlacement(item, x, y, width, height);
+    if (!rect) {
         return "";
     }
-    return `<line class="${className}" x1="${segment.x1.toFixed(1)}" y1="${segment.y1.toFixed(1)}" x2="${segment.x2.toFixed(1)}" y2="${segment.y2.toFixed(1)}"></line>`;
+    return `<rect class="${className}" x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"></rect>`;
 }
 
-function buildEdgeSegmentFromPlacement(item, x, y, width, height) {
+function buildOpeningRectFromPlacement(item, x, y, width, height) {
     const edge = String(item?.edge || "top");
-    const start = Number(item?.start_ratio ?? 0.15);
-    const end = Number(item?.end_ratio ?? 0.85);
+    const start = clamp(Number(item?.start_ratio ?? 0.15), 0, 1);
+    const end = clamp(Number(item?.end_ratio ?? 0.85), 0, 1);
+    const thickness = 6;
+    const inset = thickness / 2;
+
     if (edge === "top") {
-        return { x1: x + (width * start), y1: y, x2: x + (width * end), y2: y };
+        const startX = Math.max(x, x + (width * start) - inset);
+        const endX = Math.min(x + width, x + (width * end) + inset);
+        return { x: startX, y, width: Math.max(endX - startX, 1), height: thickness };
     }
     if (edge === "bottom") {
-        return { x1: x + (width * start), y1: y + height, x2: x + (width * end), y2: y + height };
+        const startX = Math.max(x, x + (width * start) - inset);
+        const endX = Math.min(x + width, x + (width * end) + inset);
+        return { x: startX, y: y + height - thickness, width: Math.max(endX - startX, 1), height: thickness };
     }
     if (edge === "left") {
-        return { x1: x, y1: y + (height * start), x2: x, y2: y + (height * end) };
+        const startY = Math.max(y, y + (height * start) - inset);
+        const endY = Math.min(y + height, y + (height * end) + inset);
+        return { x, y: startY, width: thickness, height: Math.max(endY - startY, 1) };
     }
     if (edge === "right") {
-        return { x1: x + width, y1: y + (height * start), x2: x + width, y2: y + (height * end) };
+        const startY = Math.max(y, y + (height * start) - inset);
+        const endY = Math.min(y + height, y + (height * end) + inset);
+        return { x: x + width - thickness, y: startY, width: thickness, height: Math.max(endY - startY, 1) };
     }
     return null;
 }

@@ -15,22 +15,40 @@ CREATE CONSTRAINT House_houseId_Required IF NOT EXISTS FOR (n:`House`) REQUIRE n
 // Mandatory property: footprintId
 CREATE CONSTRAINT BuildingFootprint_footprintId_Required IF NOT EXISTS FOR (n:`BuildingFootprint`) REQUIRE n.`footprintId` IS NOT NULL;
 
+// Class: floor plan
+// Definition: A level-specific interior planning view derived from the house footprint and used to position rooms, stairs, and interior openings.
+// URI: http://www.onto2ai-toolset.com/ontology/house/House#FloorPlan
+// Mandatory property: planId
+CREATE CONSTRAINT FloorPlan_planId_Required IF NOT EXISTS FOR (n:`FloorPlan`) REQUIRE n.`planId` IS NOT NULL;
+
 // Class: room
 // Definition: An interior space within a house used for a functional domestic purpose.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#Room
 // Mandatory property: roomId
 CREATE CONSTRAINT Room_roomId_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`roomId` IS NOT NULL;
 
+// Class: garage
+// Definition: A room or enclosed vehicular storage area associated with the house footprint and first-floor circulation.
+// URI: http://www.onto2ai-toolset.com/ontology/house/House#Garage
+
+// Class: stair
+// Definition: A vertical circulation room element connecting basement, first-floor, and second-floor plan levels.
+// URI: http://www.onto2ai-toolset.com/ontology/house/House#Stair
+
 // Class: wall
 // Definition: A boundary element defining one side of a room or separating adjacent interior or exterior spaces.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#Wall
 
+// Class: opening
+// Definition: An editable wall-hosted boundary segment representing an interior or exterior opening in the floor-plan editor.
+// URI: http://www.onto2ai-toolset.com/ontology/house/House#Opening
+
 // Class: door
-// Definition: An opening element in a wall used for passage between rooms or between interior and exterior space.
+// Definition: An opening element in a wall used for passage between rooms or between interior and exterior space, rendered in the editor as a virtual wall segment.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#Door
 
 // Class: window
-// Definition: An opening element in a wall used for daylight, view, or ventilation.
+// Definition: An opening element in a wall used for daylight, view, or ventilation, rendered in the editor as a virtual wall segment.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#Window
 
 // Class: utility connection
