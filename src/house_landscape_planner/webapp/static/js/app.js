@@ -173,6 +173,7 @@ function setupActions() {
     document.getElementById("add-house-plan").addEventListener("click", addHousePlan);
     document.getElementById("remove-house-plan").addEventListener("click", removeHousePlan);
     document.getElementById("add-room").addEventListener("click", addFloorRoom);
+    document.getElementById("remove-room").addEventListener("click", removeSelectedRoom);
     document.getElementById("rotate-stair").addEventListener("click", rotateSelectedStair);
     document.getElementById("add-house-vertex").addEventListener("click", addHousePlanVertex);
     document.getElementById("remove-house-vertex").addEventListener("click", removeHousePlanVertex);
@@ -2620,6 +2621,7 @@ function updateFeatureActions() {
     const addHousePlanButton = document.getElementById("add-house-plan");
     const removeHousePlanButton = document.getElementById("remove-house-plan");
     const addRoomButton = document.getElementById("add-room");
+    const removeRoomButton = document.getElementById("remove-room");
     const rotateStairButton = document.getElementById("rotate-stair");
     const addHouseVertexButton = document.getElementById("add-house-vertex");
     const removeHouseVertexButton = document.getElementById("remove-house-vertex");
@@ -2638,6 +2640,7 @@ function updateFeatureActions() {
     addHousePlanButton.disabled = !hasAssessment || hasHousePlan;
     removeHousePlanButton.disabled = !hasHousePlan;
     addRoomButton.disabled = !hasAssessment || !hasHousePlan || !isFloorView;
+    removeRoomButton.disabled = !selectedRoom;
     rotateStairButton.disabled = !isStairSelected;
     addHouseVertexButton.disabled = !hasHousePlan;
     removeHouseVertexButton.disabled = !isHouseVertexSelected || state.assessment.house_plan_points.length <= 3;
@@ -2692,6 +2695,25 @@ function addFloorRoom() {
     state.assessment.objects.rooms.push(newRoom);
     state.selectedKind = "room";
     state.selectedId = newRoom.id;
+    renderCatalog();
+    renderSelection();
+}
+
+function removeSelectedRoom() {
+    if (!state.assessment || state.selectedKind !== "room") {
+        return;
+    }
+
+    const roomIndex = state.assessment.objects.rooms.findIndex((room) => room.id === state.selectedId);
+    if (roomIndex < 0) {
+        return;
+    }
+
+    const [removedRoom] = state.assessment.objects.rooms.splice(roomIndex, 1);
+    const fallbackLevel = removedRoom ? mapLevelNameToView(removedRoom.properties.level_name) : state.activeView;
+    state.selectedKind = "floor-plan";
+    state.selectedId = fallbackLevel;
+    state.activeView = fallbackLevel;
     renderCatalog();
     renderSelection();
 }
