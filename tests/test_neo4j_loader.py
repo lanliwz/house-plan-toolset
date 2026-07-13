@@ -16,6 +16,39 @@ from house_landscape_planner.loaders.neo4j_parcel_loader import (
     load_parcel_elevation_into_neo4j,
     project_contour_lines_to_parcel_space,
 )
+from house_landscape_planner.models import RoomSummary
+
+
+def test_room_layout_serialization_preserves_interior_design_components() -> None:
+    room = RoomSummary(
+        room_id="room-2",
+        label="Bedroom 2",
+        room_type="bedroom",
+        level_name="second floor",
+        area=120.0,
+        area_unit="square feet",
+        width=10.0,
+        height=12.0,
+        linear_unit="feet",
+        notes="Editable bedroom",
+        interior_design={
+            "fixture_layout": [
+                {
+                    "id": "room-2-bed-1",
+                    "type": "bed",
+                    "x_ratio": 0.15,
+                    "y_ratio": 0.2,
+                    "width_inches": 60,
+                    "depth_inches": 80,
+                }
+            ]
+        },
+    )
+
+    payload = neo4j_parcel_loader.serialize_room_summary(room)
+    restored = neo4j_parcel_loader.load_saved_room_layouts(json.dumps([payload]))
+
+    assert restored[0].interior_design == room.interior_design
 
 
 def test_build_feature_collection_creates_onto2ai_parcel_models() -> None:
@@ -59,7 +92,7 @@ def test_build_feature_collection_adds_us_postal_address_when_fields_exist(tmp_p
     assert address.street_address_line1 == "62 North Country Road"
     assert address.city_name == "East Setauket"
     assert address.postal_code == "11733"
-    assert address.subdivision.value == "NY"
+    assert address.has_subdivision.value == "NY"
 
 
 def test_load_house_footprint_into_neo4j_rejects_missing_parcel(monkeypatch, tmp_path) -> None:

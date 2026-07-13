@@ -9,6 +9,11 @@ const state = {
     gardenInteraction: null,
     housePlanInteraction: null,
     floorPlanInteraction: null,
+    interiorFixtureInteraction: null,
+    interiorFixtureEditTimer: null,
+    selectedInteriorFixtureId: null,
+    selectedInteriorSegmentKind: null,
+    selectedInteriorSegmentIndex: null,
     persistenceMode: "session",
     currentNeo4jParcelId: null,
     currentNeo4jDatabase: null,
@@ -17,10 +22,27 @@ const state = {
 const DETAIL_ZOOM_MIN = 0.5;
 const DETAIL_ZOOM_MAX = 10;
 const DETAIL_ZOOM_STEP = 0.1;
+const DEFAULT_WALL_THICKNESS_INCHES = 4.5;
+const LEGACY_DEFAULT_WALL_THICKNESS_INCHES = 6;
 const FLOOR_VIEW_CONFIGS = [
     { key: "basement", label: "Basement", matchers: ["basement", "lower level", "cellar"] },
     { key: "first-floor", label: "First Floor", matchers: ["first floor", "1st floor", "main floor", "main level", "ground floor"] },
     { key: "second-floor", label: "Second Floor", matchers: ["second floor", "2nd floor", "upper level", "upper floor"] },
+];
+const ROOM_TYPE_OPTIONS = [
+    "room",
+    "bedroom",
+    "bathroom",
+    "kitchen",
+    "living_room",
+    "dining",
+    "office",
+    "recreation",
+    "storage",
+    "mechanical",
+    "laundry",
+    "garage",
+    "stair",
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -36,6 +58,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupGardenEditing();
     setupHousePlanEditing();
     setupFloorPlanEditing();
+    setupInteriorDesignEditing();
     loadNeo4jParcelOptions();
 });
 
@@ -156,6 +179,12 @@ function setupForm() {
         state.gardenInteraction = null;
         state.housePlanInteraction = null;
         state.floorPlanInteraction = null;
+        state.interiorFixtureInteraction = null;
+        window.clearTimeout(state.interiorFixtureEditTimer);
+        state.interiorFixtureEditTimer = null;
+        state.selectedInteriorFixtureId = null;
+        state.selectedInteriorSegmentKind = null;
+        state.selectedInteriorSegmentIndex = null;
         state.persistenceMode = "session";
         state.currentNeo4jParcelId = null;
         state.currentNeo4jDatabase = null;
@@ -184,7 +213,30 @@ function setupActions() {
 function setupPropertyEditing() {
     const properties = document.getElementById("properties-list");
     properties.addEventListener("change", handlePropertyEditorChange);
+    properties.addEventListener("input", (event) => {
+        if (event.target.dataset.segmentField === "thickness_inches") {
+            handlePropertyEditorChange(event);
+        }
+    });
     properties.addEventListener("click", handlePropertyEditorClick);
+    const interiorCanvas = document.getElementById("interior-design-canvas");
+    interiorCanvas.addEventListener("change", handlePropertyEditorChange);
+    interiorCanvas.addEventListener("input", (event) => {
+        const target = event.target;
+        if (target.dataset.interiorSegmentField === "thickness_inches") {
+            applyInteriorSegmentField(target.dataset.interiorSegmentField, target.value);
+        } else if (target.dataset.fixtureField) {
+            window.clearTimeout(state.interiorFixtureEditTimer);
+            const field = target.dataset.fixtureField;
+            const value = target.value;
+            state.interiorFixtureEditTimer = window.setTimeout(() => {
+                state.interiorFixtureEditTimer = null;
+                applyBathroomFixtureField(field, value);
+            }, 200);
+        } else if (target.dataset.interiorField || target.dataset.interiorColorIndex) {
+            applyInteriorDesignEdit(target, { refreshOnly: true });
+        }
+    });
 }
 
 function setupViewToggle() {
@@ -198,6 +250,10 @@ function setupViewToggle() {
     });
     document.getElementById("view-patio").addEventListener("click", () => {
         state.activeView = "patio";
+        renderActiveView();
+    });
+    document.getElementById("view-interior-design").addEventListener("click", () => {
+        state.activeView = "interior-design";
         renderActiveView();
     });
     document.getElementById("view-basement").addEventListener("click", () => {
@@ -402,6 +458,88 @@ function setupFloorPlanEditing() {
     window.addEventListener("pointercancel", stopFloorPlanInteraction);
 }
 
+function setupInteriorDesignEditing() {
+    const canvas = document.getElementById("interior-design-canvas");
+
+    canvas.addEventListener("click", (event) => {
+        const addSegmentButton = event.target.closest("[data-interior-segment-add]");
+        if (addSegmentButton) {
+            addInteriorRoomSegment(addSegmentButton.dataset.interiorSegmentAdd);
+            return;
+        }
+
+        const removeSegmentButton = event.target.closest("[data-interior-segment-remove]");
+        if (removeSegmentButton) {
+            removeSelectedInteriorRoomSegment();
+            return;
+        }
+
+        const addButton = event.target.closest("[data-fixture-add]");
+        if (addButton) {
+            addBathroomFixture(addButton.dataset.fixtureAdd);
+            return;
+        }
+
+        const removeButton = event.target.closest("[data-fixture-remove]");
+        if (removeButton) {
+            removeSelectedBathroomFixture();
+            return;
+        }
+
+        const fixture = event.target.closest("[data-fixture-id]");
+        if (fixture) {
+            state.selectedInteriorFixtureId = fixture.dataset.fixtureId;
+            state.selectedInteriorSegmentKind = null;
+            state.selectedInteriorSegmentIndex = null;
+            refreshInteriorDesignWindow();
+            return;
+        }
+
+        const segment = event.target.closest("[data-interior-segment-kind]");
+        if (segment) {
+            state.selectedInteriorFixtureId = null;
+            state.selectedInteriorSegmentKind = segment.dataset.interiorSegmentKind;
+            state.selectedInteriorSegmentIndex = Number(segment.dataset.interiorSegmentIndex);
+            refreshInteriorDesignWindow();
+        }
+    });
+
+    canvas.addEventListener("pointerdown", (event) => {
+        const target = event.target.closest("[data-fixture-action]");
+        if (!target || state.selectedKind !== "interior-design") {
+            return;
+        }
+        const design = getSelectedObject();
+        const sourceRoom = getInteriorSourceRoom(design);
+        const fixtureId = target.dataset.fixtureId;
+        const fixture = getBathroomFixture(sourceRoom, fixtureId);
+        const svg = canvas.querySelector(".interior-floor-svg");
+        if (!sourceRoom || !fixture || !svg) {
+            return;
+        }
+
+        event.preventDefault();
+        state.selectedInteriorFixtureId = fixtureId;
+        state.selectedInteriorSegmentKind = null;
+        state.selectedInteriorSegmentIndex = null;
+        state.interiorFixtureInteraction = {
+            fixtureId,
+            pointerId: event.pointerId,
+            mode: target.dataset.fixtureAction,
+            startPointer: clientPointToSvg(svg, event.clientX, event.clientY),
+            startFixture: { ...fixture },
+            pixelsPerInch: getInteriorPixelsPerInch(design),
+            roomWidthInches: getInteriorRoomDimensionsInches(design).width,
+            roomDepthInches: getInteriorRoomDimensionsInches(design).height,
+        };
+        refreshInteriorDesignWindow();
+    });
+
+    window.addEventListener("pointermove", handleInteriorFixturePointerMove);
+    window.addEventListener("pointerup", stopInteriorFixtureInteraction);
+    window.addEventListener("pointercancel", stopInteriorFixtureInteraction);
+}
+
 function setupZoomControls() {
     const zoomSlider = document.getElementById("zoom-slider");
 
@@ -410,7 +548,7 @@ function setupZoomControls() {
     document.getElementById("zoom-reset").addEventListener("click", () => setDetailZoom(1));
     zoomSlider.addEventListener("input", () => setDetailZoom(Number(zoomSlider.value)));
 
-    ["detail-canvas", "garden-canvas", "patio-canvas", "basement-canvas", "first-floor-canvas", "second-floor-canvas"].forEach((canvasId) => {
+    ["detail-canvas", "garden-canvas", "patio-canvas", "interior-design-canvas", "basement-canvas", "first-floor-canvas", "second-floor-canvas"].forEach((canvasId) => {
         document.getElementById(canvasId).addEventListener("wheel", (event) => {
             if (!event.ctrlKey && !event.metaKey) {
                 return;
@@ -801,6 +939,7 @@ function renderCatalog() {
         housePlan,
         houseVertices = [],
     } = state.assessment.objects;
+    const interiorDesigns = getInteriorDesignObjects();
     const hasFloorShell = Boolean(housePlan) && Array.isArray(state.assessment.house_plan_points) && state.assessment.house_plan_points.length >= 3;
     let floorPlans = [];
     if (hasFloorShell) {
@@ -821,6 +960,7 @@ function renderCatalog() {
     document.getElementById("house-plan-count").textContent = String((housePlan ? 1 : 0) + floorPlans.length);
     document.getElementById("house-vertex-count").textContent = String(houseVertices.length);
     document.getElementById("room-count").textContent = String(rooms.length);
+    document.getElementById("interior-design-count").textContent = String(interiorDesigns.length);
     document.getElementById("utility-count").textContent = String(utilities.length);
     document.getElementById("feature-count").textContent = String(features.length);
     document.getElementById("patio-count").textContent = String(patioFeatures.length);
@@ -840,6 +980,9 @@ function renderCatalog() {
     document.getElementById("room-list").innerHTML = rooms.length
         ? rooms.map(renderCatalogItem).join("")
         : '<div class="placeholder">Room objects will appear here.</div>';
+    document.getElementById("interior-design-list").innerHTML = interiorDesigns.length
+        ? interiorDesigns.map(renderCatalogItem).join("")
+        : '<div class="placeholder">Add room objects to generate interior design schemes.</div>';
     document.getElementById("utility-list").innerHTML = utilities.length
         ? utilities.map(renderCatalogItem).join("")
         : '<div class="placeholder">Utility connections will appear here.</div>';
@@ -867,10 +1010,17 @@ function renderCatalogItem(item) {
 }
 
 function setSelection(kind, id) {
+    if (kind === "interior-design" && (state.selectedKind !== kind || state.selectedId !== id)) {
+        state.selectedInteriorFixtureId = null;
+        state.selectedInteriorSegmentKind = null;
+        state.selectedInteriorSegmentIndex = null;
+    }
     state.selectedKind = kind;
     state.selectedId = id;
     if (kind === "feature") {
         state.activeView = isPatioFeature(id) ? "patio" : "garden";
+    } else if (kind === "interior-design") {
+        state.activeView = "interior-design";
     } else if (kind === "room") {
         const room = state.assessment?.objects.rooms.find((item) => item.id === id) || null;
         state.activeView = room ? mapLevelNameToView(room.properties.level_name) : "first-floor";
@@ -900,18 +1050,21 @@ function renderActiveView() {
     const isParcel = state.activeView === "parcel";
     const isGarden = state.activeView === "garden";
     const isPatio = state.activeView === "patio";
+    const isInteriorDesign = state.activeView === "interior-design";
     const isBasement = state.activeView === "basement";
     const isFirstFloor = state.activeView === "first-floor";
     const isSecondFloor = state.activeView === "second-floor";
     document.getElementById("view-parcel").classList.toggle("active", isParcel);
     document.getElementById("view-garden").classList.toggle("active", isGarden);
     document.getElementById("view-patio").classList.toggle("active", isPatio);
+    document.getElementById("view-interior-design").classList.toggle("active", isInteriorDesign);
     document.getElementById("view-basement").classList.toggle("active", isBasement);
     document.getElementById("view-first-floor").classList.toggle("active", isFirstFloor);
     document.getElementById("view-second-floor").classList.toggle("active", isSecondFloor);
     document.getElementById("parcel-view-panel").classList.toggle("active", isParcel);
     document.getElementById("garden-view-panel").classList.toggle("active", isGarden);
     document.getElementById("patio-view-panel").classList.toggle("active", isPatio);
+    document.getElementById("interior-design-view-panel").classList.toggle("active", isInteriorDesign);
     document.getElementById("basement-view-panel").classList.toggle("active", isBasement);
     document.getElementById("first-floor-view-panel").classList.toggle("active", isFirstFloor);
     document.getElementById("second-floor-view-panel").classList.toggle("active", isSecondFloor);
@@ -929,17 +1082,19 @@ function renderInteractiveDiagram() {
     const parcelCanvas = document.getElementById("detail-canvas");
     const gardenCanvas = document.getElementById("garden-canvas");
     const patioCanvas = document.getElementById("patio-canvas");
+    const interiorDesignCanvas = document.getElementById("interior-design-canvas");
     const basementCanvas = document.getElementById("basement-canvas");
     const firstFloorCanvas = document.getElementById("first-floor-canvas");
     const secondFloorCanvas = document.getElementById("second-floor-canvas");
     parcelCanvas.innerHTML = buildParcelSvg(state.assessment);
     gardenCanvas.innerHTML = buildGardenSvg(state.assessment);
     patioCanvas.innerHTML = buildPatioSvg(state.assessment);
+    interiorDesignCanvas.innerHTML = buildInteriorDesignView();
     basementCanvas.innerHTML = buildFloorPlanSvg(state.assessment, "basement");
     firstFloorCanvas.innerHTML = buildFloorPlanSvg(state.assessment, "first-floor");
     secondFloorCanvas.innerHTML = buildFloorPlanSvg(state.assessment, "second-floor");
 
-    [parcelCanvas, gardenCanvas, patioCanvas, basementCanvas, firstFloorCanvas, secondFloorCanvas].forEach((canvas) => {
+    [parcelCanvas, gardenCanvas, patioCanvas, interiorDesignCanvas, basementCanvas, firstFloorCanvas, secondFloorCanvas].forEach((canvas) => {
         canvas.querySelectorAll("[data-kind][data-id]").forEach((element) => {
             element.addEventListener("click", () => {
                 setSelection(element.dataset.kind, element.dataset.id);
@@ -948,6 +1103,649 @@ function renderInteractiveDiagram() {
     });
 
     updateZoomControls();
+}
+
+function buildInteriorDesignView() {
+    const designs = getInteriorDesignObjects();
+    if (!designs.length) {
+        return '<div class="placeholder">Add room objects to populate room design schemes.</div>';
+    }
+
+    const selectedId = state.selectedKind === "interior-design" ? state.selectedId : "";
+    const selectedDesign = selectedId ? designs.find((item) => item.id === selectedId) : null;
+    const totalBudget = designs.reduce((sum, item) => sum + Number(item.properties.estimated_budget || 0), 0);
+    const paletteNames = Array.from(new Set(designs.map((item) => item.properties.palette_name))).join(", ");
+    const cards = designs.map((item) => buildInteriorDesignCard(item, selectedId)).join("");
+
+    return `
+        <div class="interior-design-board">
+            ${selectedDesign ? buildInteriorRoomDesignWindow(selectedDesign) : ""}
+            <div class="interior-design-summary">
+                <div>
+                    <span class="metric-label">Room Designs</span>
+                    <strong>${escapeHtml(String(designs.length))}</strong>
+                </div>
+                <div>
+                    <span class="metric-label">Budget</span>
+                    <strong>${escapeHtml(formatCurrency(totalBudget, "USD"))}</strong>
+                </div>
+                <div>
+                    <span class="metric-label">Palettes</span>
+                    <strong>${escapeHtml(paletteNames || "Unassigned")}</strong>
+                </div>
+            </div>
+            <div class="interior-design-grid">${cards}</div>
+        </div>
+    `;
+}
+
+function buildInteriorRoomDesignWindow(item) {
+    const hasEditableComponents = isEditableInteriorComponentRoom(item);
+    const swatches = item.properties.palette_colors.map((color) => `
+        <span class="interior-swatch" style="background:${escapeHtml(color.hex)}" title="${escapeHtml(color.name)}"></span>
+    `).join("");
+    const colorEditors = item.properties.palette_colors.map((color, index) => `
+        <label class="interior-color-editor">
+            <span>${escapeHtml(color.name)}</span>
+            <input type="color" value="${escapeHtml(color.hex)}" data-interior-color-index="${index}" aria-label="${escapeHtml(color.name)} color">
+        </label>
+    `).join("");
+    return `
+        <section class="interior-room-window">
+            <div class="interior-room-preview">
+                ${hasEditableComponents ? buildInteriorComponentToolbar(item) : ""}
+                <div class="interior-room-stage">${buildInteriorRoomFloorSvg(item)}</div>
+                ${hasEditableComponents ? '<p class="interior-fixture-hint">Drag room components to place or resize them. Select a wall, door, or window to adjust its edge and span.</p>' : ""}
+            </div>
+            <div class="interior-room-spec">
+                <span class="catalog-kind">${escapeHtml(item.properties.level_name)}</span>
+                <h3>${escapeHtml(item.properties.room_label)}</h3>
+                <p>${escapeHtml(item.properties.scheme_name)}</p>
+                <div class="interior-card-row">${swatches}</div>
+                ${hasEditableComponents ? buildBathroomFixtureInspector(item) : ""}
+                ${buildInteriorStructureInspector(item)}
+                <div class="interior-edit-grid">
+                    <label>
+                        <span>Floor Finish</span>
+                        <input type="text" value="${escapeHtml(item.properties.primary_finish)}" data-interior-field="primary_finish">
+                    </label>
+                    <label>
+                        <span>Material</span>
+                        <input type="text" value="${escapeHtml(item.properties.material_name)}" data-interior-field="material_name">
+                    </label>
+                    <label>
+                        <span>Furniture</span>
+                        <input type="text" value="${escapeHtml(item.properties.furniture_anchor)}" data-interior-field="furniture_anchor">
+                    </label>
+                    <label>
+                        <span>Lighting</span>
+                        <input type="text" value="${escapeHtml(item.properties.lighting_fixture)}" data-interior-field="lighting_fixture">
+                    </label>
+                    <label>
+                        <span>Budget</span>
+                        <input type="number" min="0" step="50" value="${escapeHtml(String(item.properties.estimated_budget))}" data-interior-field="estimated_budget">
+                    </label>
+                    <label>
+                        <span>Status</span>
+                        <select data-interior-field="procurement_status">
+                            ${["candidate", "approved", "ordered", "delivered", "installed"].map((status) => `
+                                <option value="${status}" ${status === item.properties.procurement_status ? "selected" : ""}>${titleCase(status)}</option>
+                            `).join("")}
+                        </select>
+                    </label>
+                </div>
+                <div class="interior-color-grid">${colorEditors}</div>
+                <dl class="interior-spec-list">
+                    <div><dt>Floor</dt><dd data-interior-spec="primary_finish">${escapeHtml(item.properties.primary_finish)}</dd></div>
+                    <div><dt>Material</dt><dd data-interior-spec="material_name">${escapeHtml(item.properties.material_name)}</dd></div>
+                    <div><dt>Furniture</dt><dd data-interior-spec="furniture_anchor">${escapeHtml(item.properties.furniture_anchor)}</dd></div>
+                    <div><dt>Lighting</dt><dd data-interior-spec="lighting_fixture">${escapeHtml(item.properties.lighting_fixture)}</dd></div>
+                    <div><dt>Budget</dt><dd data-interior-spec="estimated_budget">${escapeHtml(formatCurrency(item.properties.estimated_budget, item.properties.cost_currency))}</dd></div>
+                </dl>
+            </div>
+        </section>
+    `;
+}
+
+const INTERIOR_COMPONENT_TYPES = {
+    vanity: { label: "Vanity", widthInches: 48, depthInches: 22, rooms: ["bathroom"] },
+    shower: { label: "Shower", widthInches: 30, depthInches: 30, rooms: ["bathroom"] },
+    bathtub: { label: "Bathtub", widthInches: 60, depthInches: 36, rooms: ["bathroom"] },
+    toilet: { label: "Toilet", widthInches: 30, depthInches: 48, rooms: ["bathroom"] },
+    bed: { label: "Bed", widthInches: 60, depthInches: 80, rooms: ["bedroom"] },
+    nightstand: { label: "Nightstand", widthInches: 24, depthInches: 20, rooms: ["bedroom"] },
+    dresser: { label: "Dresser", widthInches: 60, depthInches: 20, rooms: ["bedroom"] },
+    wardrobe: { label: "Wardrobe", widthInches: 48, depthInches: 24, rooms: ["bedroom"] },
+    chair: { label: "Chair", widthInches: 30, depthInches: 30, rooms: ["bedroom", "general"] },
+    sofa: { label: "Sofa", widthInches: 84, depthInches: 36, rooms: ["general"] },
+    table: { label: "Table", widthInches: 48, depthInches: 30, rooms: ["general"] },
+    storage: { label: "Storage", widthInches: 60, depthInches: 18, rooms: ["general"] },
+};
+const FIXTURE_DIRECTION_OPTIONS = [
+    { value: 0, label: "Up" },
+    { value: 90, label: "Right" },
+    { value: 180, label: "Down" },
+    { value: 270, label: "Left" },
+];
+
+function getInteriorComponentRoomCategory(item) {
+    if (!item?.properties) {
+        return "";
+    }
+    const roomType = String(item?.properties?.room_type || "").toLowerCase();
+    if (roomType.includes("bath")) {
+        return "bathroom";
+    }
+    if (roomType.includes("bed")) {
+        return "bedroom";
+    }
+    return "general";
+}
+
+function isEditableInteriorComponentRoom(item) {
+    return Boolean(getInteriorComponentRoomCategory(item));
+}
+
+function getInteriorComponentTypes(item) {
+    const category = getInteriorComponentRoomCategory(item);
+    return Object.entries(INTERIOR_COMPONENT_TYPES).filter(([, config]) => config.rooms.includes(category));
+}
+
+function buildInteriorComponentToolbar(item) {
+    const buttons = getInteriorComponentTypes(item).map(([type, config]) => `
+        <button type="button" data-fixture-add="${type}">+ ${escapeHtml(config.label)}</button>
+    `).join("");
+    return `
+        <div class="interior-fixture-toolbar" aria-label="Add room component">
+            <span>Components</span>
+            ${buttons}
+            <span class="interior-toolbar-section">Structure</span>
+            <button type="button" data-interior-segment-add="walls">+ Wall</button>
+            <button type="button" data-interior-segment-add="doors">+ Door</button>
+            <button type="button" data-interior-segment-add="windows">+ Window</button>
+        </div>
+    `;
+}
+
+function buildBathroomFixtureInspector(item) {
+    const fixtures = getBathroomFixtures(item);
+    let selected = fixtures.find((fixture) => fixture.id === state.selectedInteriorFixtureId) || null;
+    if (!selected && fixtures.length && !state.selectedInteriorSegmentKind) {
+        selected = fixtures[0];
+        state.selectedInteriorFixtureId = selected.id;
+    }
+    if (!selected) {
+        return `
+            <section class="interior-fixture-inspector">
+                <div class="interior-fixture-inspector-title">Room component</div>
+                <p>Add a component to begin.</p>
+            </section>
+        `;
+    }
+    return `
+        <section class="interior-fixture-inspector">
+            <div class="interior-fixture-inspector-heading">
+                <div>
+                    <span class="interior-fixture-inspector-title">Selected component</span>
+                    <strong>${escapeHtml(selected.label)}</strong>
+                </div>
+                <button type="button" class="interior-fixture-remove" data-fixture-remove="${escapeHtml(selected.id)}">Remove</button>
+            </div>
+            <div class="interior-fixture-fields">
+                ${buildBathroomFixtureNumberField("Width", "width_inches", selected.width_inches, 12)}
+                ${buildBathroomFixtureNumberField("Depth", "depth_inches", selected.depth_inches, 12)}
+                ${buildBathroomFixtureNumberField("Left", "x_inches", selected.x_inches, 0)}
+                ${buildBathroomFixtureNumberField("Top", "y_inches", selected.y_inches, 0)}
+                ${buildBathroomFixtureDirectionField(selected.direction_degrees)}
+            </div>
+        </section>
+    `;
+}
+
+function buildBathroomFixtureDirectionField(value) {
+    const direction = normalizeFixtureDirection(value);
+    return `
+        <label>
+            <span>Direction</span>
+            <select data-fixture-field="direction_degrees" aria-label="Fixture direction">
+                ${FIXTURE_DIRECTION_OPTIONS.map((option) => `
+                    <option value="${option.value}" ${direction === option.value ? "selected" : ""}>
+                        ${option.label} (${option.value}°)
+                    </option>
+                `).join("")}
+            </select>
+        </label>
+    `;
+}
+
+function buildInteriorStructureInspector(item) {
+    const sourceRoom = getInteriorSourceRoom(item);
+    const kind = state.selectedInteriorSegmentKind;
+    const index = Number(state.selectedInteriorSegmentIndex);
+    const list = sourceRoom && ["walls", "doors", "windows"].includes(kind)
+        ? (sourceRoom.properties[kind] || [])
+        : [];
+    const segment = Number.isInteger(index) ? list[index] : null;
+    if (!segment) {
+        return `
+            <section class="interior-structure-inspector">
+                <div class="interior-fixture-inspector-title">Room structure</div>
+                <p>Add or select a wall, door, or window to adjust it.</p>
+            </section>
+        `;
+    }
+    const singular = titleCase(kind.slice(0, -1));
+    return `
+        <section class="interior-structure-inspector">
+            <div class="interior-fixture-inspector-heading">
+                <div>
+                    <span class="interior-fixture-inspector-title">Selected structure</span>
+                    <strong>${escapeHtml(singular)} ${index + 1}</strong>
+                </div>
+                <button type="button" class="interior-fixture-remove" data-interior-segment-remove>Remove</button>
+            </div>
+            <div class="interior-fixture-fields">
+                <label>
+                    <span>Wall edge</span>
+                    <select data-interior-segment-field="edge">
+                        ${["top", "right", "bottom", "left"].map((edge) => `
+                            <option value="${edge}" ${segment.edge === edge ? "selected" : ""}>${titleCase(edge)}</option>
+                        `).join("")}
+                    </select>
+                </label>
+                ${buildInteriorSegmentNumberField("Start", "start_ratio", segment.start_ratio)}
+                ${buildInteriorSegmentNumberField("End", "end_ratio", segment.end_ratio)}
+                ${kind === "walls" ? buildInteriorWallThicknessField(segment) : ""}
+                <div class="interior-segment-length">
+                    <span>Span</span>
+                    <strong>${Math.max(0, Math.round((Number(segment.end_ratio) - Number(segment.start_ratio)) * 100))}%</strong>
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function buildInteriorSegmentNumberField(label, field, ratio) {
+    return `
+        <label>
+            <span>${escapeHtml(label)}</span>
+            <span class="interior-fixture-input">
+                <input type="number" min="0" max="100" step="1" value="${Math.round(Number(ratio || 0) * 100)}" data-interior-segment-field="${field}">
+                <span>%</span>
+            </span>
+        </label>
+    `;
+}
+
+function buildInteriorWallThicknessField(segment) {
+    return `
+        <label>
+            <span>Thickness</span>
+            <span class="interior-fixture-input">
+                <input type="number" min="1" max="24" step="0.5"
+                    value="${formatNumber(getWallThicknessInches(segment))}" data-interior-segment-field="thickness_inches">
+                <span>in</span>
+            </span>
+        </label>
+    `;
+}
+
+function buildBathroomFixtureNumberField(label, field, value, minimum) {
+    return `
+        <label>
+            <span>${escapeHtml(label)}</span>
+            <span class="interior-fixture-input">
+                <input type="number" min="${minimum}" step="1" value="${escapeHtml(String(roundValue(value, 1)))}" data-fixture-field="${field}">
+                <span>in</span>
+            </span>
+        </label>
+    `;
+}
+
+function buildDefaultInteriorComponents(item) {
+    const roomDimensions = getInteriorRoomDimensionsInches(item);
+    const roomWidthInches = roomDimensions.width;
+    const roomDepthInches = roomDimensions.height;
+    if (getInteriorComponentRoomCategory(item) === "bedroom") {
+        const bedX = Math.max(6, (roomWidthInches - INTERIOR_COMPONENT_TYPES.bed.widthInches) / 2);
+        return [
+            createBathroomFixture("bed", bedX, 6, "bedroom-bed"),
+            createBathroomFixture("nightstand", Math.max(6, bedX - 30), 6, "bedroom-nightstand"),
+            createBathroomFixture("dresser", 6, Math.max(6, roomDepthInches - 26), "bedroom-dresser"),
+            createBathroomFixture("wardrobe", Math.max(6, roomWidthInches - 54), Math.max(6, roomDepthInches - 30), "bedroom-wardrobe"),
+        ];
+    }
+    if (getInteriorComponentRoomCategory(item) === "general") {
+        return [
+            createBathroomFixture("sofa", 6, 6, "room-sofa"),
+            createBathroomFixture("table", Math.max(6, (roomWidthInches - 48) / 2), Math.max(6, (roomDepthInches - 30) / 2), "room-table"),
+            createBathroomFixture("storage", Math.max(6, roomWidthInches - 66), Math.max(6, roomDepthInches - 24), "room-storage"),
+        ];
+    }
+    return [
+        createBathroomFixture("bathtub", 6, 6, "bath-bathtub"),
+        createBathroomFixture("shower", Math.max(6, roomWidthInches - 36), 6, "bath-shower"),
+        createBathroomFixture("vanity", Math.max(6, roomWidthInches - 54), Math.max(6, roomDepthInches - 28), "bath-vanity"),
+        createBathroomFixture("toilet", 6, Math.max(6, roomDepthInches - 54), "bath-toilet"),
+    ];
+}
+
+function createBathroomFixture(type, xInches = 6, yInches = 6, id = "") {
+    const config = INTERIOR_COMPONENT_TYPES[type] || INTERIOR_COMPONENT_TYPES.vanity;
+    return {
+        id: id || `interior-${type}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        type,
+        label: config.label,
+        x_inches: roundValue(xInches, 1),
+        y_inches: roundValue(yInches, 1),
+        width_inches: config.widthInches,
+        depth_inches: config.depthInches,
+        direction_degrees: 0,
+    };
+}
+
+function normalizeFixtureDirection(value) {
+    const degrees = Number(value || 0);
+    return ((Math.round(degrees / 90) * 90) % 360 + 360) % 360;
+}
+
+function getFixtureDirectionLabel(value) {
+    const direction = normalizeFixtureDirection(value);
+    return FIXTURE_DIRECTION_OPTIONS.find((option) => option.value === direction)?.label || "Up";
+}
+
+function normalizeBathroomFixtureLayout(value, item) {
+    if (!Array.isArray(value)) {
+        return buildDefaultInteriorComponents(item);
+    }
+    const roomDimensions = getInteriorRoomDimensionsInches(item);
+    return value.filter((fixture) => fixture && typeof fixture === "object").map((fixture, index) => {
+        const category = getInteriorComponentRoomCategory(item);
+        const fallbackType = category === "bedroom" ? "bed" : category === "bathroom" ? "vanity" : "sofa";
+        const type = INTERIOR_COMPONENT_TYPES[fixture.type] ? fixture.type : fallbackType;
+        const config = INTERIOR_COMPONENT_TYPES[type];
+        const id = String(fixture.id || `interior-${type}-${index + 1}`);
+        let widthInches = Math.max(12, Number(fixture.width_inches || config.widthInches));
+        let depthInches = Math.max(12, Number(fixture.depth_inches || config.depthInches));
+        let xInches = Math.max(0, Number(fixture.x_inches || 0));
+        let yInches = Math.max(0, Number(fixture.y_inches || 0));
+        if (id === "bath-bathtub" && type === "bathtub" && widthInches === 36 && depthInches === 72) {
+            widthInches = 60;
+            depthInches = 36;
+            xInches = Math.max(0, roomDimensions.width - widthInches);
+            yInches = Math.max(0, roomDimensions.height - depthInches);
+        }
+        if (id === "bath-shower" && type === "shower" && widthInches === 51.3 && depthInches === 29.9) {
+            widthInches = 30;
+            depthInches = 30;
+            xInches = Math.min(6, Math.max(0, roomDimensions.width - widthInches));
+            yInches = Math.max(0, roomDimensions.height - depthInches);
+        }
+        return {
+            id,
+            type,
+            label: String(fixture.label || config.label),
+            x_inches: clamp(xInches, 0, Math.max(0, roomDimensions.width - widthInches)),
+            y_inches: clamp(yInches, 0, Math.max(0, roomDimensions.height - depthInches)),
+            width_inches: widthInches,
+            depth_inches: depthInches,
+            direction_degrees: normalizeFixtureDirection(fixture.direction_degrees),
+        };
+    });
+}
+
+function getBathroomFixtures(item) {
+    return normalizeBathroomFixtureLayout(item.properties.fixture_layout, item);
+}
+
+function getBathroomFixture(sourceRoom, fixtureId) {
+    if (!sourceRoom) {
+        return null;
+    }
+    const design = buildInteriorDesignObject(sourceRoom);
+    return getBathroomFixtures(design).find((fixture) => fixture.id === fixtureId) || null;
+}
+
+function setBathroomFixtureLayout(sourceRoom, fixtures) {
+    const current = normalizeInteriorDesignOverrides(sourceRoom.properties.interior_design);
+    sourceRoom.properties.interior_design = sanitizeInteriorDesignOverrides({
+        ...current,
+        fixture_layout: fixtures,
+    });
+}
+
+function getInteriorPixelsPerInch(item) {
+    const roomDimensions = getInteriorRoomDimensionsInches(item);
+    const canvasWidth = 560;
+    const canvasHeight = 320;
+    const margin = 34;
+    return Math.min(
+        (canvasWidth - margin * 2) / roomDimensions.width,
+        (canvasHeight - margin * 2) / roomDimensions.height,
+    );
+}
+
+function getInteriorRoomDimensionsInches(item) {
+    const linearUnit = String(item?.properties?.linear_unit || "feet");
+    return {
+        width: Math.max(convertRoomLengthToInches(Number(item?.properties?.room_width || 1), linearUnit), 1),
+        height: Math.max(convertRoomLengthToInches(Number(item?.properties?.room_height || 1), linearUnit), 1),
+    };
+}
+
+function buildInteriorRoomFloorSvg(item) {
+    const colors = item.properties.palette_colors || [];
+    const floorColor = colors[0]?.hex || "#ECE7DD";
+    const accentColor = colors[1]?.hex || "#91A389";
+    const darkColor = colors[2]?.hex || "#4B5357";
+    const roomDimensions = getInteriorRoomDimensionsInches(item);
+    const canvasWidth = 560;
+    const canvasHeight = 320;
+    const margin = 34;
+    const ratio = getInteriorPixelsPerInch(item);
+    const width = roomDimensions.width * ratio;
+    const height = roomDimensions.height * ratio;
+    const x = (canvasWidth - width) / 2;
+    const y = (canvasHeight - height) / 2;
+    const furniture = buildInteriorFurnitureSvg(item, x, y, width, height, accentColor, darkColor);
+    const structure = buildInteriorBoundarySvg(item, x, y, width, height);
+    const selectedLabel = `${item.properties.room_label} floor design`;
+    const zoomPercent = Math.max(DETAIL_ZOOM_MIN, state.detailZoom || 1) * 100;
+
+    return `
+        <svg class="interior-floor-svg" viewBox="0 0 ${canvasWidth} ${canvasHeight}" role="img"
+            aria-label="${escapeHtml(selectedLabel)}" style="width:${zoomPercent.toFixed(1)}%">
+            <defs>
+                <pattern id="interior-floor-grid-${escapeHtml(item.id)}" width="24" height="24" patternUnits="userSpaceOnUse">
+                    <path d="M 24 0 L 0 0 0 24" class="interior-floor-grid-line"></path>
+                </pattern>
+            </defs>
+            <rect class="interior-floor-shadow" x="${(x + 8).toFixed(1)}" y="${(y + 8).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="8"></rect>
+            <rect class="interior-floor-fill" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="8" style="fill:${escapeHtml(floorColor)}"></rect>
+            <rect class="interior-floor-grid" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="8" fill="url(#interior-floor-grid-${escapeHtml(item.id)})"></rect>
+            <rect class="interior-floor-outline" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="8"></rect>
+            ${structure}
+            ${furniture}
+            <text class="interior-floor-title" x="${x.toFixed(1)}" y="${Math.max(22, y - 12).toFixed(1)}">${escapeHtml(item.properties.room_label)}</text>
+            <text class="interior-floor-note" x="${x.toFixed(1)}" y="${(y + height + 22).toFixed(1)}">${escapeHtml(item.properties.primary_finish)}</text>
+        </svg>
+    `;
+}
+
+function buildInteriorBoundarySvg(item, x, y, width, height) {
+    const sourceRoom = getInteriorSourceRoom(item);
+    if (!sourceRoom) {
+        return "";
+    }
+    const groups = [
+        ["walls", normalizeRoomWalls(sourceRoom.properties.walls)],
+        ["doors", normalizeRoomOpenings(sourceRoom.properties.doors)],
+        ["windows", normalizeRoomOpenings(sourceRoom.properties.windows)],
+    ];
+    return groups.map(([kind, segments]) => segments.map((segment, index) => {
+        const rect = kind === "walls"
+            ? buildWallRectFromPlacement(sourceRoom, segment, x, y, width, height, 0.25)
+            : buildOpeningRectFromPlacement(segment, x, y, width, height, sourceRoom, 0.25);
+        if (!rect) {
+            return "";
+        }
+        const selected = state.selectedInteriorSegmentKind === kind && state.selectedInteriorSegmentIndex === index;
+        const typeClass = kind === "walls" ? "wall" : kind === "doors" ? "door" : "window";
+        return `
+            <rect class="interior-boundary-segment interior-${typeClass} ${selected ? "selected" : ""}"
+                x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"
+                data-interior-segment-kind="${kind}" data-interior-segment-index="${index}"
+                role="button" tabindex="0" aria-label="${titleCase(typeClass)} ${index + 1}"></rect>
+        `;
+    }).join("")).join("");
+}
+
+function buildInteriorFurnitureSvg(item, x, y, width, height, accentColor, darkColor) {
+    const roomType = String(item.properties.room_type || "").toLowerCase();
+    if (isEditableInteriorComponentRoom(item)) {
+        return buildBathroomFixturesSvg(item, x, y, width, accentColor, darkColor);
+    }
+    if (roomType.includes("kitchen")) {
+        return `
+            <rect class="interior-fixture" x="${(x + width * 0.05).toFixed(1)}" y="${(y + height * 0.08).toFixed(1)}" width="${(width * 0.9).toFixed(1)}" height="${(height * 0.16).toFixed(1)}" rx="6" style="fill:${escapeHtml(darkColor)}"></rect>
+            <rect class="interior-furniture" x="${(x + width * 0.32).toFixed(1)}" y="${(y + height * 0.42).toFixed(1)}" width="${(width * 0.36).toFixed(1)}" height="${(height * 0.22).toFixed(1)}" rx="8" style="fill:${escapeHtml(accentColor)}"></rect>
+            <circle class="interior-light" cx="${(x + width * 0.42).toFixed(1)}" cy="${(y + height * 0.32).toFixed(1)}" r="8"></circle>
+            <circle class="interior-light" cx="${(x + width * 0.58).toFixed(1)}" cy="${(y + height * 0.32).toFixed(1)}" r="8"></circle>
+        `;
+    }
+    if (roomType.includes("garage")) {
+        return `
+            <rect class="interior-fixture" x="${(x + width * 0.06).toFixed(1)}" y="${(y + height * 0.08).toFixed(1)}" width="${(width * 0.16).toFixed(1)}" height="${(height * 0.84).toFixed(1)}" rx="5" style="fill:${escapeHtml(darkColor)}"></rect>
+            <rect class="interior-furniture" x="${(x + width * 0.52).toFixed(1)}" y="${(y + height * 0.16).toFixed(1)}" width="${(width * 0.36).toFixed(1)}" height="${(height * 0.22).toFixed(1)}" rx="6" style="fill:${escapeHtml(accentColor)}"></rect>
+            <line class="interior-light-line" x1="${(x + width * 0.34).toFixed(1)}" y1="${(y + height * 0.28).toFixed(1)}" x2="${(x + width * 0.46).toFixed(1)}" y2="${(y + height * 0.28).toFixed(1)}"></line>
+            <line class="interior-light-line" x1="${(x + width * 0.34).toFixed(1)}" y1="${(y + height * 0.62).toFixed(1)}" x2="${(x + width * 0.46).toFixed(1)}" y2="${(y + height * 0.62).toFixed(1)}"></line>
+        `;
+    }
+    if (roomType.includes("stair")) {
+        const steps = Array.from({ length: 7 }, (_, index) => {
+            const stepY = y + height * (0.16 + index * 0.1);
+            return `<line class="interior-stair-step" x1="${(x + width * 0.24).toFixed(1)}" y1="${stepY.toFixed(1)}" x2="${(x + width * 0.76).toFixed(1)}" y2="${stepY.toFixed(1)}"></line>`;
+        }).join("");
+        return `
+            <rect class="interior-furniture" x="${(x + width * 0.22).toFixed(1)}" y="${(y + height * 0.1).toFixed(1)}" width="${(width * 0.56).toFixed(1)}" height="${(height * 0.8).toFixed(1)}" rx="8" style="fill:${escapeHtml(accentColor)}"></rect>
+            ${steps}
+            <path class="interior-stair-arrow" d="M ${(x + width * 0.5).toFixed(1)} ${(y + height * 0.82).toFixed(1)} L ${(x + width * 0.5).toFixed(1)} ${(y + height * 0.22).toFixed(1)} M ${(x + width * 0.45).toFixed(1)} ${(y + height * 0.3).toFixed(1)} L ${(x + width * 0.5).toFixed(1)} ${(y + height * 0.22).toFixed(1)} L ${(x + width * 0.55).toFixed(1)} ${(y + height * 0.3).toFixed(1)}"></path>
+        `;
+    }
+    return `
+        <rect class="interior-rug" x="${(x + width * 0.18).toFixed(1)}" y="${(y + height * 0.24).toFixed(1)}" width="${(width * 0.64).toFixed(1)}" height="${(height * 0.5).toFixed(1)}" rx="12" style="fill:${escapeHtml(accentColor)}"></rect>
+        <rect class="interior-furniture" x="${(x + width * 0.16).toFixed(1)}" y="${(y + height * 0.12).toFixed(1)}" width="${(width * 0.3).toFixed(1)}" height="${(height * 0.18).toFixed(1)}" rx="8" style="fill:${escapeHtml(darkColor)}"></rect>
+        <rect class="interior-furniture" x="${(x + width * 0.58).toFixed(1)}" y="${(y + height * 0.56).toFixed(1)}" width="${(width * 0.24).toFixed(1)}" height="${(height * 0.18).toFixed(1)}" rx="8" style="fill:${escapeHtml(darkColor)}"></rect>
+        <circle class="interior-light" cx="${(x + width * 0.78).toFixed(1)}" cy="${(y + height * 0.22).toFixed(1)}" r="8"></circle>
+    `;
+}
+
+function buildBathroomFixturesSvg(item, roomX, roomY, roomWidth, accentColor, darkColor) {
+    const pixelsPerInch = roomWidth / getInteriorRoomDimensionsInches(item).width;
+    return getBathroomFixtures(item).map((fixture) => {
+        const fixtureX = roomX + fixture.x_inches * pixelsPerInch;
+        const fixtureY = roomY + fixture.y_inches * pixelsPerInch;
+        const fixtureWidth = fixture.width_inches * pixelsPerInch;
+        const fixtureDepth = fixture.depth_inches * pixelsPerInch;
+        const direction = normalizeFixtureDirection(fixture.direction_degrees);
+        const swapsAxes = direction % 180 !== 0;
+        const symbolWidth = swapsAxes ? fixtureDepth : fixtureWidth;
+        const symbolDepth = swapsAxes ? fixtureWidth : fixtureDepth;
+        const selected = fixture.id === state.selectedInteriorFixtureId;
+        const fill = fixture.type === "shower" || fixture.type === "vanity" ? darkColor : accentColor;
+        const content = buildBathroomFixtureSymbol(fixture, symbolWidth, symbolDepth);
+        const symbolTransform = `translate(${(fixtureWidth / 2).toFixed(1)} ${(fixtureDepth / 2).toFixed(1)}) rotate(${direction}) translate(${(-symbolWidth / 2).toFixed(1)} ${(-symbolDepth / 2).toFixed(1)})`;
+        const directionLabel = getFixtureDirectionLabel(direction);
+        return `
+            <g class="interior-fixture-component ${selected ? "selected" : ""}"
+                transform="translate(${fixtureX.toFixed(1)} ${fixtureY.toFixed(1)})"
+                data-fixture-id="${escapeHtml(fixture.id)}"
+                data-fixture-action="move"
+                role="button" tabindex="0"
+                aria-label="${escapeHtml(fixture.label)}, ${formatNumber(fixture.width_inches)} by ${formatNumber(fixture.depth_inches)} inches, facing ${directionLabel}">
+                <rect class="interior-fixture-hitbox" width="${fixtureWidth.toFixed(1)}" height="${fixtureDepth.toFixed(1)}" rx="5" style="fill:${escapeHtml(fill)}"></rect>
+                <g transform="${symbolTransform}">${content}</g>
+                <g class="interior-fixture-direction" transform="translate(11 11) rotate(${direction})" aria-hidden="true">
+                    <line x1="0" y1="5" x2="0" y2="-5"></line>
+                    <path d="M -4 -1 L 0 -5 L 4 -1"></path>
+                </g>
+                <text class="interior-fixture-label" x="${(fixtureWidth / 2).toFixed(1)}" y="${(fixtureDepth / 2 + 4).toFixed(1)}">${escapeHtml(fixture.label)}</text>
+                <text class="interior-fixture-size" x="${(fixtureWidth / 2).toFixed(1)}" y="${Math.max(11, fixtureDepth - 6).toFixed(1)}">${formatNumber(fixture.width_inches)}×${formatNumber(fixture.depth_inches)} in</text>
+                ${selected ? `
+                    <rect class="interior-fixture-selection" x="-3" y="-3" width="${(fixtureWidth + 6).toFixed(1)}" height="${(fixtureDepth + 6).toFixed(1)}" rx="6"></rect>
+                    <rect class="interior-fixture-resize" x="${(fixtureWidth - 6).toFixed(1)}" y="${(fixtureDepth - 6).toFixed(1)}" width="12" height="12" rx="2"
+                        data-fixture-id="${escapeHtml(fixture.id)}" data-fixture-action="resize"></rect>
+                ` : ""}
+            </g>
+        `;
+    }).join("");
+}
+
+function buildBathroomFixtureSymbol(fixture, width, depth) {
+    if (fixture.type === "sofa") {
+        return `
+            <rect class="interior-fixture-symbol" x="${(width * 0.08).toFixed(1)}" y="${(depth * 0.16).toFixed(1)}" width="${(width * 0.84).toFixed(1)}" height="${(depth * 0.68).toFixed(1)}" rx="6"></rect>
+            <line class="interior-fixture-symbol" x1="${(width * 0.34).toFixed(1)}" y1="${(depth * 0.18).toFixed(1)}" x2="${(width * 0.34).toFixed(1)}" y2="${(depth * 0.82).toFixed(1)}"></line>
+            <line class="interior-fixture-symbol" x1="${(width * 0.66).toFixed(1)}" y1="${(depth * 0.18).toFixed(1)}" x2="${(width * 0.66).toFixed(1)}" y2="${(depth * 0.82).toFixed(1)}"></line>
+        `;
+    }
+    if (fixture.type === "table") {
+        return `<rect class="interior-fixture-symbol" x="${(width * 0.12).toFixed(1)}" y="${(depth * 0.16).toFixed(1)}" width="${(width * 0.76).toFixed(1)}" height="${(depth * 0.68).toFixed(1)}" rx="5"></rect>`;
+    }
+    if (fixture.type === "storage") {
+        return `
+            <line class="interior-fixture-symbol" x1="${(width / 3).toFixed(1)}" y1="4" x2="${(width / 3).toFixed(1)}" y2="${Math.max(4, depth - 4).toFixed(1)}"></line>
+            <line class="interior-fixture-symbol" x1="${(width * 2 / 3).toFixed(1)}" y1="4" x2="${(width * 2 / 3).toFixed(1)}" y2="${Math.max(4, depth - 4).toFixed(1)}"></line>
+        `;
+    }
+    if (fixture.type === "bed") {
+        return `
+            <rect class="interior-fixture-symbol" x="${(width * 0.08).toFixed(1)}" y="${(depth * 0.08).toFixed(1)}" width="${(width * 0.84).toFixed(1)}" height="${(depth * 0.84).toFixed(1)}" rx="5"></rect>
+            <line class="interior-fixture-symbol" x1="${(width * 0.1).toFixed(1)}" y1="${(depth * 0.28).toFixed(1)}" x2="${(width * 0.9).toFixed(1)}" y2="${(depth * 0.28).toFixed(1)}"></line>
+        `;
+    }
+    if (fixture.type === "nightstand") {
+        return `<circle class="interior-fixture-symbol" cx="${(width / 2).toFixed(1)}" cy="${(depth / 2).toFixed(1)}" r="${Math.max(2, Math.min(width, depth) * 0.1).toFixed(1)}"></circle>`;
+    }
+    if (fixture.type === "dresser" || fixture.type === "wardrobe") {
+        return `
+            <line class="interior-fixture-symbol" x1="${(width / 2).toFixed(1)}" y1="4" x2="${(width / 2).toFixed(1)}" y2="${Math.max(4, depth - 4).toFixed(1)}"></line>
+            <line class="interior-fixture-symbol" x1="4" y1="${(depth / 2).toFixed(1)}" x2="${Math.max(4, width - 4).toFixed(1)}" y2="${(depth / 2).toFixed(1)}"></line>
+        `;
+    }
+    if (fixture.type === "chair") {
+        return `<rect class="interior-fixture-symbol" x="${(width * 0.2).toFixed(1)}" y="${(depth * 0.2).toFixed(1)}" width="${(width * 0.6).toFixed(1)}" height="${(depth * 0.6).toFixed(1)}" rx="6"></rect>`;
+    }
+    if (fixture.type === "bathtub") {
+        return `<rect class="interior-fixture-symbol" x="${(width * 0.1).toFixed(1)}" y="${(depth * 0.14).toFixed(1)}" width="${(width * 0.8).toFixed(1)}" height="${(depth * 0.72).toFixed(1)}" rx="8"></rect>`;
+    }
+    if (fixture.type === "shower") {
+        return `
+            <line class="interior-fixture-symbol" x1="5" y1="5" x2="${Math.max(5, width - 5).toFixed(1)}" y2="${Math.max(5, depth - 5).toFixed(1)}"></line>
+            <line class="interior-fixture-symbol" x1="${Math.max(5, width - 5).toFixed(1)}" y1="5" x2="5" y2="${Math.max(5, depth - 5).toFixed(1)}"></line>
+        `;
+    }
+    if (fixture.type === "toilet") {
+        return `<ellipse class="interior-fixture-symbol" cx="${(width / 2).toFixed(1)}" cy="${(depth * 0.58).toFixed(1)}" rx="${(width * 0.28).toFixed(1)}" ry="${(depth * 0.25).toFixed(1)}"></ellipse>`;
+    }
+    return `<line class="interior-fixture-symbol" x1="${(width * 0.12).toFixed(1)}" y1="${(depth * 0.5).toFixed(1)}" x2="${(width * 0.88).toFixed(1)}" y2="${(depth * 0.5).toFixed(1)}"></line>`;
+}
+
+function buildInteriorDesignCard(item, selectedId) {
+    const selected = item.id === selectedId ? "selected" : "";
+    const swatches = item.properties.palette_colors.map((color) => `
+        <span class="interior-swatch" style="background:${escapeHtml(color.hex)}" title="${escapeHtml(color.name)}"></span>
+    `).join("");
+    return `
+        <button class="interior-design-card ${selected}" data-kind="interior-design" data-id="${escapeHtml(item.id)}" type="button">
+            <span class="catalog-kind">${escapeHtml(item.properties.level_name)}</span>
+            <strong>${escapeHtml(item.label)}</strong>
+            <span>${escapeHtml(item.properties.scheme_name)}</span>
+            <span class="interior-card-row">${swatches}</span>
+            <span class="interior-card-row">${escapeHtml(item.properties.primary_finish)} | ${escapeHtml(item.properties.furniture_anchor)}</span>
+            <span class="interior-card-row">${escapeHtml(formatCurrency(item.properties.estimated_budget, item.properties.cost_currency))} | ${escapeHtml(item.properties.procurement_status)}</span>
+        </button>
+    `;
 }
 
 function buildParcelSvg(data) {
@@ -1378,8 +2176,8 @@ function buildRoomOpeningMarkup(room, x, y, width, height) {
     const doors = Array.isArray(room.properties.doors) ? room.properties.doors : [];
     const windows = Array.isArray(room.properties.windows) ? room.properties.windows : [];
     const wallMarkup = walls.map((wall) => buildWallSegmentMarkup(room, wall, x, y, width, height)).join("");
-    const doorMarkup = doors.map((door) => buildOpeningSegmentMarkup(door, x, y, width, height, "room-door")).join("");
-    const windowMarkup = windows.map((windowItem) => buildOpeningSegmentMarkup(windowItem, x, y, width, height, "room-window")).join("");
+    const doorMarkup = doors.map((door) => buildOpeningSegmentMarkup(door, x, y, width, height, "room-door", room)).join("");
+    const windowMarkup = windows.map((windowItem) => buildOpeningSegmentMarkup(windowItem, x, y, width, height, "room-window", room)).join("");
     return `${wallMarkup}${doorMarkup}${windowMarkup}`;
 }
 
@@ -1388,56 +2186,136 @@ function buildWallSegmentMarkup(room, wall, x, y, width, height) {
     if (!rect) {
         return "";
     }
-    return `<rect class="room-wall-segment" x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"></rect>`;
+    const hasSelectedRoom = state.selectedKind === "room";
+    const showDimension = !hasSelectedRoom || state.selectedId === room.id;
+    const lengthLabel = showDimension ? buildFloorWallLengthLabel(room, wall, x, y, width, height) : "";
+    return `<rect class="room-wall-segment" x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"></rect>${lengthLabel}`;
 }
 
-function buildOpeningSegmentMarkup(item, x, y, width, height, className) {
-    const rect = buildOpeningRectFromPlacement(item, x, y, width, height);
+function buildFloorWallLengthLabel(room, wall, x, y, width, height) {
+    const edge = String(wall.edge || "top");
+    const start = Math.min(
+        clamp(Number(wall.start_ratio ?? 0), 0, 1),
+        clamp(Number(wall.end_ratio ?? 1), 0, 1),
+    );
+    const end = Math.max(
+        clamp(Number(wall.start_ratio ?? 0), 0, 1),
+        clamp(Number(wall.end_ratio ?? 1), 0, 1),
+    );
+    const midpoint = (start + end) / 2;
+    const isHorizontal = edge === "top" || edge === "bottom";
+    const inverseZoom = 1 / (state.detailZoom || 1);
+    const tick = 4 * inverseZoom;
+    const dimensionOffset = 12 * inverseZoom;
+    const labelOffset = 5 * inverseZoom;
+    const label = escapeHtml(`${formatRoomWallLength(room, wall)} · t ${formatWallThickness(wall)}`);
+
+    if (isHorizontal) {
+        const startX = x + (width * start);
+        const endX = x + (width * end);
+        const wallY = edge === "top" ? y : y + height;
+        const dimensionY = edge === "top" ? y + dimensionOffset : y + height - dimensionOffset;
+        const labelY = edge === "top" ? dimensionY + labelOffset : dimensionY - labelOffset;
+        return `
+            <g class="room-wall-dimension" data-wall-edge="${edge}" aria-label="${titleCase(edge)} wall length ${label}">
+                <line class="room-wall-extension" x1="${startX.toFixed(1)}" y1="${wallY.toFixed(1)}" x2="${startX.toFixed(1)}" y2="${dimensionY.toFixed(1)}"></line>
+                <line class="room-wall-extension" x1="${endX.toFixed(1)}" y1="${wallY.toFixed(1)}" x2="${endX.toFixed(1)}" y2="${dimensionY.toFixed(1)}"></line>
+                <line class="room-wall-dimension-line" x1="${startX.toFixed(1)}" y1="${dimensionY.toFixed(1)}" x2="${endX.toFixed(1)}" y2="${dimensionY.toFixed(1)}"></line>
+                <line class="room-wall-dimension-anchor" x1="${(startX - tick).toFixed(1)}" y1="${(dimensionY + tick).toFixed(1)}" x2="${(startX + tick).toFixed(1)}" y2="${(dimensionY - tick).toFixed(1)}"></line>
+                <line class="room-wall-dimension-anchor" x1="${(endX - tick).toFixed(1)}" y1="${(dimensionY + tick).toFixed(1)}" x2="${(endX + tick).toFixed(1)}" y2="${(dimensionY - tick).toFixed(1)}"></line>
+                <text class="room-wall-length zoom-stable-label" text-anchor="middle" transform="${buildStableLabelTransform(x + (width * midpoint), labelY)}">${label}</text>
+            </g>
+        `;
+    }
+
+    const startY = y + (height * start);
+    const endY = y + (height * end);
+    const wallX = edge === "left" ? x : x + width;
+    const dimensionX = edge === "left" ? x + dimensionOffset : x + width - dimensionOffset;
+    const labelX = edge === "left" ? dimensionX + labelOffset : dimensionX - labelOffset;
+    const labelY = y + (height * midpoint);
+    return `
+        <g class="room-wall-dimension" data-wall-edge="${edge}" aria-label="${titleCase(edge)} wall length ${label}">
+            <line class="room-wall-extension" x1="${wallX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${dimensionX.toFixed(1)}" y2="${startY.toFixed(1)}"></line>
+            <line class="room-wall-extension" x1="${wallX.toFixed(1)}" y1="${endY.toFixed(1)}" x2="${dimensionX.toFixed(1)}" y2="${endY.toFixed(1)}"></line>
+            <line class="room-wall-dimension-line" x1="${dimensionX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${dimensionX.toFixed(1)}" y2="${endY.toFixed(1)}"></line>
+            <line class="room-wall-dimension-anchor" x1="${(dimensionX - tick).toFixed(1)}" y1="${(startY + tick).toFixed(1)}" x2="${(dimensionX + tick).toFixed(1)}" y2="${(startY - tick).toFixed(1)}"></line>
+            <line class="room-wall-dimension-anchor" x1="${(dimensionX - tick).toFixed(1)}" y1="${(endY + tick).toFixed(1)}" x2="${(dimensionX + tick).toFixed(1)}" y2="${(endY - tick).toFixed(1)}"></line>
+            <text class="room-wall-length zoom-stable-label" text-anchor="middle"
+                transform="translate(${labelX.toFixed(1)} ${labelY.toFixed(1)}) rotate(-90) scale(${inverseZoom.toFixed(4)})">${label}</text>
+        </g>
+    `;
+}
+
+function buildOpeningSegmentMarkup(item, x, y, width, height, className, room) {
+    const rect = buildOpeningRectFromPlacement(item, x, y, width, height, room);
     if (!rect) {
         return "";
     }
     return `<rect class="${className}" x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"></rect>`;
 }
 
-function buildOpeningRectFromPlacement(item, x, y, width, height) {
+function buildOpeningRectFromPlacement(item, x, y, width, height, room = null, minimumThickness = 1) {
     const edge = String(item?.edge || "top");
     const start = clamp(Number(item?.start_ratio ?? 0.15), 0, 1);
     const end = clamp(Number(item?.end_ratio ?? 0.85), 0, 1);
-    const thickness = 6;
+    const matchingWall = room ? findOpeningHostWall(room, item) : null;
+    const wallRect = matchingWall
+        ? buildWallRectFromPlacement(room, matchingWall, x, y, width, height, minimumThickness)
+        : null;
+    const thickness = wallRect
+        ? (edge === "top" || edge === "bottom" ? wallRect.height : wallRect.width)
+        : 6;
     const inset = thickness / 2;
 
     if (edge === "top") {
         const startX = Math.max(x, x + (width * start) - inset);
         const endX = Math.min(x + width, x + (width * end) + inset);
-        return { x: startX, y, width: Math.max(endX - startX, 1), height: thickness };
+        return { x: startX, y: wallRect?.y ?? y, width: Math.max(endX - startX, 1), height: thickness };
     }
     if (edge === "bottom") {
         const startX = Math.max(x, x + (width * start) - inset);
         const endX = Math.min(x + width, x + (width * end) + inset);
-        return { x: startX, y: y + height - thickness, width: Math.max(endX - startX, 1), height: thickness };
+        return { x: startX, y: wallRect?.y ?? y + height - thickness, width: Math.max(endX - startX, 1), height: thickness };
     }
     if (edge === "left") {
         const startY = Math.max(y, y + (height * start) - inset);
         const endY = Math.min(y + height, y + (height * end) + inset);
-        return { x, y: startY, width: thickness, height: Math.max(endY - startY, 1) };
+        return { x: wallRect?.x ?? x, y: startY, width: thickness, height: Math.max(endY - startY, 1) };
     }
     if (edge === "right") {
         const startY = Math.max(y, y + (height * start) - inset);
         const endY = Math.min(y + height, y + (height * end) + inset);
-        return { x: x + width - thickness, y: startY, width: thickness, height: Math.max(endY - startY, 1) };
+        return { x: wallRect?.x ?? x + width - thickness, y: startY, width: thickness, height: Math.max(endY - startY, 1) };
     }
     return null;
 }
 
-function buildWallRectFromPlacement(room, wall, x, y, width, height) {
+function findOpeningHostWall(room, opening) {
+    const edge = String(opening?.edge || "top");
+    const openingStart = Math.min(Number(opening?.start_ratio ?? 0), Number(opening?.end_ratio ?? 1));
+    const openingEnd = Math.max(Number(opening?.start_ratio ?? 0), Number(opening?.end_ratio ?? 1));
+    const walls = normalizeRoomWalls(room?.properties?.walls);
+    return walls.find((wall) => {
+        if (String(wall.edge || "top") !== edge) {
+            return false;
+        }
+        const wallStart = Math.min(Number(wall.start_ratio ?? 0), Number(wall.end_ratio ?? 1));
+        const wallEnd = Math.max(Number(wall.start_ratio ?? 0), Number(wall.end_ratio ?? 1));
+        return wallStart <= openingEnd && wallEnd >= openingStart;
+    }) || { edge, start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES };
+}
+
+function buildWallRectFromPlacement(room, wall, x, y, width, height, minimumThickness = 1) {
     const edge = String(wall?.edge || "top");
     const start = clamp(Number(wall?.start_ratio ?? 0), 0, 1);
     const end = clamp(Number(wall?.end_ratio ?? 1), 0, 1);
-    const roomWidthFeet = Math.max(Number(room?.properties?.width || 0), 0.01);
-    const roomHeightFeet = Math.max(Number(room?.properties?.height || 0), 0.01);
-    const wallThicknessFeet = 0.5;
-    const thicknessX = Math.max((width / roomWidthFeet) * wallThicknessFeet, 1);
-    const thicknessY = Math.max((height / roomHeightFeet) * wallThicknessFeet, 1);
+    const linearUnit = String(room?.properties?.linear_unit || "feet");
+    const roomWidthInches = Math.max(convertRoomLengthToInches(Number(room?.properties?.width || 0), linearUnit), 0.01);
+    const roomHeightInches = Math.max(convertRoomLengthToInches(Number(room?.properties?.height || 0), linearUnit), 0.01);
+    const wallThicknessInches = getWallThicknessInches(wall);
+    const thicknessX = Math.max((width / roomWidthInches) * wallThicknessInches, minimumThickness);
+    const thicknessY = Math.max((height / roomHeightInches) * wallThicknessInches, minimumThickness);
     const insetX = thicknessX / 2;
     const insetY = thicknessY / 2;
 
@@ -1924,6 +2802,62 @@ function stopFloorPlanInteraction(event) {
     state.floorPlanInteraction = null;
 }
 
+function handleInteriorFixturePointerMove(event) {
+    const interaction = state.interiorFixtureInteraction;
+    if (!interaction || event.pointerId !== interaction.pointerId) {
+        return;
+    }
+    const design = getSelectedObject();
+    const sourceRoom = getInteriorSourceRoom(design);
+    const svg = document.querySelector("#interior-design-canvas .interior-floor-svg");
+    if (!design || !sourceRoom || !svg) {
+        return;
+    }
+
+    const pointer = clientPointToSvg(svg, event.clientX, event.clientY);
+    const deltaX = (pointer.x - interaction.startPointer.x) / interaction.pixelsPerInch;
+    const deltaY = (pointer.y - interaction.startPointer.y) / interaction.pixelsPerInch;
+    const fixtures = getBathroomFixtures(design).map((fixture) => ({ ...fixture }));
+    const fixture = fixtures.find((item) => item.id === interaction.fixtureId);
+    if (!fixture) {
+        return;
+    }
+
+    if (interaction.mode === "resize") {
+        fixture.width_inches = roundValue(clamp(
+            interaction.startFixture.width_inches + deltaX,
+            12,
+            Math.max(12, interaction.roomWidthInches - interaction.startFixture.x_inches),
+        ), 1);
+        fixture.depth_inches = roundValue(clamp(
+            interaction.startFixture.depth_inches + deltaY,
+            12,
+            Math.max(12, interaction.roomDepthInches - interaction.startFixture.y_inches),
+        ), 1);
+    } else {
+        fixture.x_inches = roundValue(clamp(
+            interaction.startFixture.x_inches + deltaX,
+            0,
+            Math.max(0, interaction.roomWidthInches - interaction.startFixture.width_inches),
+        ), 1);
+        fixture.y_inches = roundValue(clamp(
+            interaction.startFixture.y_inches + deltaY,
+            0,
+            Math.max(0, interaction.roomDepthInches - interaction.startFixture.depth_inches),
+        ), 1);
+    }
+
+    setBathroomFixtureLayout(sourceRoom, fixtures);
+    refreshInteriorDesignWindow();
+}
+
+function stopInteriorFixtureInteraction(event) {
+    if (event && state.interiorFixtureInteraction && event.pointerId !== state.interiorFixtureInteraction.pointerId) {
+        return;
+    }
+    state.interiorFixtureInteraction = null;
+}
+
 function handleHousePlanPointerMove(event) {
     if (!state.housePlanInteraction || !state.assessment) {
         return;
@@ -2280,6 +3214,10 @@ function buildDetailTags(item) {
     } else if (item.kind === "room") {
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.room_type)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(formatAreaValue(item.properties.area, item.properties.area_unit))}</span>`);
+    } else if (item.kind === "interior-design") {
+        tags.push(`<span class="detail-chip">${escapeHtml(item.properties.room_type)}</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(item.properties.scheme_name)}</span>`);
+        tags.push(`<span class="detail-chip">${escapeHtml(formatCurrency(item.properties.estimated_budget, item.properties.cost_currency))}</span>`);
     } else if (item.kind === "utility") {
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.utility_type)}</span>`);
         tags.push(`<span class="detail-chip">${escapeHtml(item.properties.status)}</span>`);
@@ -2378,6 +3316,33 @@ function buildSelectionSummary(item) {
         `;
     }
 
+    if (item.kind === "interior-design") {
+        const palette = item.properties.palette_colors.map((color) => `
+            <li>${escapeHtml(color.name)} (${escapeHtml(color.hex)})</li>
+        `).join("");
+        const selections = [
+            `Finish: ${item.properties.primary_finish}`,
+            `Material: ${item.properties.material_name}`,
+            `Furniture: ${item.properties.furniture_anchor}`,
+            `Lighting: ${item.properties.lighting_fixture}`,
+            `Textile: ${item.properties.textile_selection}`,
+            `Window treatment: ${item.properties.window_treatment}`,
+        ].map((value) => `<li>${escapeHtml(value)}</li>`).join("");
+        return `
+            <p>${escapeHtml(item.description)}</p>
+            <ul class="selection-list">
+                <li>Room: ${escapeHtml(item.properties.room_label)}</li>
+                <li>Level: ${escapeHtml(item.properties.level_name)}</li>
+                <li>Budget: ${escapeHtml(formatCurrency(item.properties.estimated_budget, item.properties.cost_currency))}</li>
+                <li>Status: ${escapeHtml(item.properties.procurement_status)}</li>
+            </ul>
+            <p><strong>Palette</strong></p>
+            <ul class="selection-list">${palette}</ul>
+            <p><strong>Selections</strong></p>
+            <ul class="selection-list">${selections}</ul>
+        `;
+    }
+
     if (item.kind === "utility") {
         return `
             <p>${escapeHtml(item.description)}</p>
@@ -2432,18 +3397,30 @@ function renderProperties(item) {
 }
 
 function renderPropertyEntry(item, key, value, properties) {
-    const label = escapeHtml(formatPropertyLabel(key));
+    const propertyLabel = item.kind === "room" && key === "height" ? "Depth" : formatPropertyLabel(key);
+    const label = escapeHtml(propertyLabel);
+    if (item.kind === "room" && (key === "width" || key === "height")) {
+        return `<dt>${label}</dt><dd>${buildRoomDimensionEditor(item, key, value, properties)}</dd>`;
+    }
+    if (item.kind === "room" && key === "room_name") {
+        return `<dt>${label}</dt><dd>${buildRoomNameEditor(value)}</dd>`;
+    }
+    if (item.kind === "room" && key === "room_type") {
+        return `<dt>${label}</dt><dd>${buildRoomTypeEditor(value)}</dd>`;
+    }
     if (item.kind === "room" && key === "stair_clear_width_feet") {
         return `<dt>${label}</dt><dd>${buildStairWidthEditor(value)}</dd>`;
     }
     if (item.kind === "room" && ["walls", "doors", "windows"].includes(key)) {
-        return `<dt>${label}</dt><dd>${buildRoomSegmentEditor(key, value)}</dd>`;
+        return `<dt>${label}</dt><dd>${buildRoomSegmentEditor(key, value, item)}</dd>`;
     }
     return `<dt>${label}</dt><dd>${escapeHtml(formatPropertyValue(key, value, properties))}</dd>`;
 }
 
 function buildDisplayProperties(item) {
-    const baseProperties = { ...(item.properties || {}) };
+    const baseProperties = item.kind === "room"
+        ? { room_name: item.label, ...(item.properties || {}) }
+        : { ...(item.properties || {}) };
     if (item.kind === "room" && String(baseProperties.room_type || "").toLowerCase() === "stair") {
         const direction = String(baseProperties.stair_direction || "up");
         const widthValue = direction === "left" || direction === "right"
@@ -2552,6 +3529,9 @@ function getSelectedObject() {
     if (state.selectedKind === "room") {
         return state.assessment.objects.rooms.find((item) => item.id === state.selectedId) || null;
     }
+    if (state.selectedKind === "interior-design") {
+        return getInteriorDesignObjects().find((item) => item.id === state.selectedId) || null;
+    }
     if (state.selectedKind === "utility") {
         return state.assessment.objects.utilities.find((item) => item.id === state.selectedId) || null;
     }
@@ -2568,6 +3548,266 @@ function getSelectedObject() {
         return state.assessment.objects.features.find((item) => item.id === state.selectedId) || null;
     }
     return null;
+}
+
+function getInteriorDesignObjects() {
+    const rooms = state.assessment?.objects?.rooms || [];
+    return rooms
+        .filter((room) => !room.properties?.generated_floor_room)
+        .map(buildInteriorDesignObject);
+}
+
+function buildInteriorDesignObject(room) {
+    const roomType = String(room.properties.room_type || "room").toLowerCase();
+    const spec = getInteriorDesignSpec(roomType);
+    const budget = estimateInteriorDesignBudget(room, spec);
+    const defaults = {
+        room_design_id: `interior-${room.properties.room_id || room.id}`,
+        target_room_id: room.properties.room_id || room.id,
+        source_room_id: room.id,
+        room_label: room.label,
+        room_type: room.properties.room_type || "room",
+        level_name: room.properties.level_name || "Main Level",
+        room_width: room.properties.width || 0,
+        room_height: room.properties.height || 0,
+        linear_unit: room.properties.linear_unit || "feet",
+        scheme_name: spec.schemeName,
+        palette_name: spec.paletteName,
+        palette_colors: spec.paletteColors,
+        primary_finish: spec.primaryFinish,
+        surface_type: spec.surfaceType,
+        material_name: spec.materialName,
+        color_name: spec.paletteColors[0]?.name || spec.paletteName,
+        furniture_anchor: spec.furnitureAnchor,
+        lighting_fixture: spec.lightingFixture,
+        textile_selection: spec.textileSelection,
+        window_treatment: spec.windowTreatment,
+        category: spec.category,
+        quantity: spec.quantity,
+        estimated_budget: budget,
+        cost_currency: "USD",
+        vendor_name: "TBD",
+        procurement_status: "candidate",
+        priority: spec.priority,
+        notes: spec.notes,
+    };
+    if (isEditableInteriorComponentRoom({ properties: defaults })) {
+        defaults.fixture_layout = buildDefaultInteriorComponents({ properties: defaults });
+    }
+    const overrides = normalizeInteriorDesignOverrides(room.properties.interior_design);
+    const properties = {
+        ...defaults,
+        ...overrides,
+        palette_colors: overrides.palette_colors || defaults.palette_colors,
+        source_room_id: room.id,
+        target_room_id: room.properties.room_id || room.id,
+        room_label: room.label,
+        room_type: room.properties.room_type || "room",
+        level_name: room.properties.level_name || "Main Level",
+        room_width: room.properties.width || 0,
+        room_height: room.properties.height || 0,
+        linear_unit: room.properties.linear_unit || "feet",
+    };
+    if (isEditableInteriorComponentRoom({ properties })) {
+        properties.fixture_layout = normalizeBathroomFixtureLayout(
+            overrides.fixture_layout === undefined ? defaults.fixture_layout : overrides.fixture_layout,
+            { properties },
+        );
+        if (overrides.fixture_layout !== undefined
+            && JSON.stringify(overrides.fixture_layout) !== JSON.stringify(properties.fixture_layout)) {
+            room.properties.interior_design = sanitizeInteriorDesignOverrides({
+                ...overrides,
+                fixture_layout: properties.fixture_layout,
+            });
+        }
+    }
+    return {
+        id: `interior-${room.id}`,
+        kind: "interior-design",
+        label: `${room.label} Design`,
+        subtitle: `${properties.scheme_name} | ${formatCurrency(properties.estimated_budget, properties.cost_currency)}`,
+        description: `Interior design specification for ${room.label}, linked to the existing room object and organized around finishes, palette, furniture, lighting, textile, budget, and procurement selections.`,
+        properties,
+    };
+}
+
+function normalizeInteriorDesignOverrides(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return {};
+    }
+    const overrides = { ...value };
+    if (Array.isArray(overrides.palette_colors)) {
+        overrides.palette_colors = overrides.palette_colors
+            .filter((color) => color && typeof color === "object")
+            .map((color) => ({
+                name: String(color.name || "Color"),
+                hex: normalizeHexColor(color.hex),
+            }));
+    }
+    if (overrides.estimated_budget !== undefined) {
+        overrides.estimated_budget = Math.max(0, Number(overrides.estimated_budget || 0));
+    }
+    return overrides;
+}
+
+function normalizeHexColor(value) {
+    const text = String(value || "").trim();
+    return /^#[0-9a-fA-F]{6}$/.test(text) ? text : "#ECE7DD";
+}
+
+function getInteriorDesignSpec(roomType) {
+    const specs = {
+        kitchen: {
+            schemeName: "Durable warm modern kitchen",
+            paletteName: "Warm White + Natural Wood",
+            paletteColors: [
+                { name: "Warm White", hex: "#F4EFE5" },
+                { name: "Natural Oak", hex: "#B98555" },
+                { name: "Soft Graphite", hex: "#4B5357" },
+            ],
+            primaryFinish: "Porcelain tile floor with washable satin wall paint",
+            surfaceType: "floor, wall, cabinet, countertop",
+            materialName: "Porcelain tile, oak veneer, quartz",
+            furnitureAnchor: "Counter stools and compact breakfast table",
+            lightingFixture: "Layered recessed, under-cabinet, and pendant lighting",
+            textileSelection: "Washable runner with low pile",
+            windowTreatment: "Moisture-resistant woven shade",
+            category: "kitchen selections",
+            quantity: 1,
+            priority: "high",
+            budgetFactor: 95,
+            notes: "Prioritize cleanability, task lighting, and durable work surfaces.",
+        },
+        bathroom: {
+            schemeName: "Calm spa bath",
+            paletteName: "Stone + Mist",
+            paletteColors: [
+                { name: "Limestone", hex: "#D8D2C4" },
+                { name: "Mist Blue", hex: "#A9BDC5" },
+                { name: "Brushed Nickel", hex: "#8F9698" },
+            ],
+            primaryFinish: "Slip-resistant porcelain floor and ceramic wet-wall tile",
+            surfaceType: "floor, wall, vanity",
+            materialName: "Porcelain, ceramic tile, sealed wood",
+            furnitureAnchor: "Floating vanity with closed storage",
+            lightingFixture: "Dimmable vanity sconces and wet-rated ceiling light",
+            textileSelection: "Cotton bath linens and washable bath mat",
+            windowTreatment: "Privacy shade with moisture-safe fabric",
+            category: "bath selections",
+            quantity: 1,
+            priority: "high",
+            budgetFactor: 85,
+            notes: "Use moisture-safe finishes and layered glare-free lighting.",
+        },
+        bedroom: {
+            schemeName: "Quiet layered bedroom",
+            paletteName: "Clay + Linen",
+            paletteColors: [
+                { name: "Soft Linen", hex: "#E7DDCE" },
+                { name: "Muted Clay", hex: "#B47B64" },
+                { name: "Deep Olive", hex: "#5F6652" },
+            ],
+            primaryFinish: "Engineered wood floor with matte low-VOC wall paint",
+            surfaceType: "floor, wall, trim",
+            materialName: "Engineered oak, wool, linen",
+            furnitureAnchor: "Bed, nightstands, dresser, and reading chair",
+            lightingFixture: "Warm bedside sconces and dimmable ceiling fixture",
+            textileSelection: "Layered linen bedding and wool area rug",
+            windowTreatment: "Blackout drapery with woven shade",
+            category: "bedroom furnishings",
+            quantity: 1,
+            priority: "medium",
+            budgetFactor: 55,
+            notes: "Balance storage, softness, and evening lighting.",
+        },
+        garage: {
+            schemeName: "Utility storage garage",
+            paletteName: "Concrete + Signal",
+            paletteColors: [
+                { name: "Sealed Concrete", hex: "#A5A8A4" },
+                { name: "Tool Red", hex: "#B94A3D" },
+                { name: "Charcoal", hex: "#3F4547" },
+            ],
+            primaryFinish: "Sealed concrete floor and washable wall finish",
+            surfaceType: "floor, wall, storage",
+            materialName: "Concrete sealer, powder-coated steel",
+            furnitureAnchor: "Wall-mounted storage, workbench, and utility shelving",
+            lightingFixture: "High-output linear LED task lighting",
+            textileSelection: "Entry mat and utility runner",
+            windowTreatment: "Simple privacy film or roller shade",
+            category: "garage storage",
+            quantity: 1,
+            priority: "medium",
+            budgetFactor: 22,
+            notes: "Keep circulation clear and make storage visible.",
+        },
+        stair: {
+            schemeName: "Safe vertical circulation",
+            paletteName: "Oak + Contrast",
+            paletteColors: [
+                { name: "Clear Oak", hex: "#C99A63" },
+                { name: "Soft Black", hex: "#24282B" },
+                { name: "Warm White", hex: "#F2EDE4" },
+            ],
+            primaryFinish: "Durable stair tread finish with high-contrast nosing",
+            surfaceType: "stair tread, railing, wall",
+            materialName: "Oak, steel, washable paint",
+            furnitureAnchor: "Integrated landing console or wall hooks",
+            lightingFixture: "Step lights and wall sconces",
+            textileSelection: "Optional bound stair runner",
+            windowTreatment: "None unless adjacent window requires privacy",
+            category: "stair finishes",
+            quantity: 1,
+            priority: "high",
+            budgetFactor: 40,
+            notes: "Prioritize code-safe lighting, grip, and visible nosing.",
+        },
+        default: {
+            schemeName: "Flexible residential room",
+            paletteName: "Sage + Walnut",
+            paletteColors: [
+                { name: "Sage", hex: "#91A389" },
+                { name: "Walnut", hex: "#6B4D3E" },
+                { name: "Soft Chalk", hex: "#ECE7DD" },
+            ],
+            primaryFinish: "Engineered wood floor with washable matte wall paint",
+            surfaceType: "floor, wall, trim",
+            materialName: "Engineered wood, washable paint, wool blend",
+            furnitureAnchor: "Flexible seating, storage, and task surface",
+            lightingFixture: "Dimmable ceiling fixture with task lamp",
+            textileSelection: "Wool-blend rug and durable upholstery",
+            windowTreatment: "Layered woven shade and soft panel",
+            category: "room package",
+            quantity: 1,
+            priority: "medium",
+            budgetFactor: 45,
+            notes: "Keep the room adaptable while selecting durable finishes.",
+        },
+    };
+
+    if (roomType.includes("kitchen")) {
+        return specs.kitchen;
+    }
+    if (roomType.includes("bath")) {
+        return specs.bathroom;
+    }
+    if (roomType.includes("bed")) {
+        return specs.bedroom;
+    }
+    if (roomType.includes("garage")) {
+        return specs.garage;
+    }
+    if (roomType.includes("stair")) {
+        return specs.stair;
+    }
+    return specs.default;
+}
+
+function estimateInteriorDesignBudget(room, spec) {
+    const area = Number(room.properties.area || 0);
+    const normalizedArea = room.properties.area_unit === "square feet" ? area : area;
+    const base = Math.max(normalizedArea, 80) * Number(spec.budgetFactor || 45);
+    return Math.round(base / 50) * 50;
 }
 
 function buildFloorPlanSelection(levelKey) {
@@ -2744,13 +3984,15 @@ function syncRoomPhysicalProperties(room) {
     const houseWidth = Number(houseProperties.width || 0);
     const houseHeight = Number(houseProperties.height || 0);
     const houseArea = Number(houseProperties.area || 0);
-    const widthRatio = Number(room.properties.floor_width_ratio || 0);
-    const heightRatio = Number(room.properties.floor_height_ratio || 0);
+    let widthRatio = Number(room.properties.floor_width_ratio || 0);
+    let heightRatio = Number(room.properties.floor_height_ratio || 0);
 
     room.properties.width = roundValue(houseWidth * widthRatio, 2);
     room.properties.height = roundValue(houseHeight * heightRatio, 2);
     if (String(room.properties.room_type || "").toLowerCase() === "stair") {
         enforceStairConstraints(room, houseWidth, houseHeight);
+        widthRatio = Number(room.properties.floor_width_ratio || 0);
+        heightRatio = Number(room.properties.floor_height_ratio || 0);
     }
     room.properties.area = roundValue(houseArea * widthRatio * heightRatio, 2);
     room.properties.walls = normalizeRoomWalls(room.properties.walls);
@@ -2760,10 +4002,10 @@ function syncRoomPhysicalProperties(room) {
 
 function buildDefaultRoomWalls() {
     return [
-        { edge: "top", start_ratio: 0, end_ratio: 1 },
-        { edge: "right", start_ratio: 0, end_ratio: 1 },
-        { edge: "bottom", start_ratio: 0, end_ratio: 1 },
-        { edge: "left", start_ratio: 0, end_ratio: 1 },
+        { edge: "top", start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES },
+        { edge: "right", start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES },
+        { edge: "bottom", start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES },
+        { edge: "left", start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES },
     ];
 }
 
@@ -2776,12 +4018,31 @@ function buildDefaultRoomWindows() {
 }
 
 function normalizeRoomWalls(items) {
-    const list = Array.isArray(items) && items.length ? items : buildDefaultRoomWalls();
+    const list = Array.isArray(items) ? items : buildDefaultRoomWalls();
+    const migrateLegacyDefaults = isLegacyDefaultWallSet(list);
     return list.map((item) => ({
         edge: String(item.edge || "top"),
         start_ratio: roundValue(Number(item.start_ratio ?? 0), 4),
         end_ratio: roundValue(Number(item.end_ratio ?? 1), 4),
+        thickness_inches: migrateLegacyDefaults
+            ? DEFAULT_WALL_THICKNESS_INCHES
+            : roundValue(getWallThicknessInches(item), 2),
     }));
+}
+
+function isLegacyDefaultWallSet(items) {
+    if (!Array.isArray(items) || items.length !== 4) {
+        return false;
+    }
+    const expectedEdges = new Set(["top", "right", "bottom", "left"]);
+    return items.every((item) => {
+        const edge = String(item?.edge || "top");
+        const start = Number(item?.start_ratio ?? 0);
+        const end = Number(item?.end_ratio ?? 1);
+        const thickness = Number(item?.thickness_inches ?? LEGACY_DEFAULT_WALL_THICKNESS_INCHES);
+        expectedEdges.delete(edge);
+        return start === 0 && end === 1 && thickness === LEGACY_DEFAULT_WALL_THICKNESS_INCHES;
+    }) && expectedEdges.size === 0;
 }
 
 function normalizeRoomOpenings(items) {
@@ -2860,6 +4121,7 @@ function resetResults() {
     document.getElementById("house-plan-count").textContent = "0";
     document.getElementById("house-vertex-count").textContent = "0";
     document.getElementById("room-count").textContent = "0";
+    document.getElementById("interior-design-count").textContent = "0";
     document.getElementById("utility-count").textContent = "0";
     document.getElementById("feature-count").textContent = "0";
     document.getElementById("patio-count").textContent = "0";
@@ -2869,6 +4131,7 @@ function resetResults() {
     document.getElementById("house-plan-list").innerHTML = '<div class="placeholder">Editable house footprint will appear here.</div>';
     document.getElementById("house-vertex-list").innerHTML = '<div class="placeholder">House footprint vertices will appear here.</div>';
     document.getElementById("room-list").innerHTML = '<div class="placeholder">Room objects will appear here.</div>';
+    document.getElementById("interior-design-list").innerHTML = '<div class="placeholder">Room design schemes will appear here.</div>';
     document.getElementById("utility-list").innerHTML = '<div class="placeholder">Utility connections will appear here.</div>';
     document.getElementById("feature-list").innerHTML = '<div class="placeholder">Garden features will appear here.</div>';
     document.getElementById("patio-list").innerHTML = '<div class="placeholder">Patio features will appear here.</div>';
@@ -2880,6 +4143,7 @@ function resetResults() {
     document.getElementById("detail-canvas").innerHTML = '<div class="placeholder">Parcel view will appear here.</div>';
     document.getElementById("garden-canvas").innerHTML = '<div class="placeholder">Garden view will appear here.</div>';
     document.getElementById("patio-canvas").innerHTML = '<div class="placeholder">Patio view will appear here.</div>';
+    document.getElementById("interior-design-canvas").innerHTML = '<div class="placeholder">Interior design schedule will appear here.</div>';
     document.getElementById("basement-canvas").innerHTML = '<div class="placeholder">Basement floor plan will appear here.</div>';
     document.getElementById("first-floor-canvas").innerHTML = '<div class="placeholder">First floor plan will appear here.</div>';
     document.getElementById("second-floor-canvas").innerHTML = '<div class="placeholder">Second floor plan will appear here.</div>';
@@ -2980,6 +4244,7 @@ async function saveFeatures() {
                         walls: room.properties.walls || [],
                         doors: room.properties.doors || [],
                         windows: room.properties.windows || [],
+                        interior_design: room.properties.interior_design || {},
                     })),
                 }),
             },
@@ -3070,29 +4335,95 @@ function formatRoomSegmentSummary(items, kind) {
     }).join(" | ");
 }
 
-function buildRoomSegmentEditor(kind, items) {
+function getRoomWallLength(room, wall) {
+    const edge = String(wall?.edge || "top");
+    const house = state.assessment?.objects?.housePlan?.properties || {};
+    const isHorizontal = edge === "top" || edge === "bottom";
+    const ratioKey = isHorizontal ? "floor_width_ratio" : "floor_height_ratio";
+    const dimensionKey = isHorizontal ? "width" : "height";
+    const ratio = Number(room?.properties?.[ratioKey] || 0);
+    const houseSpan = Number(house[dimensionKey] || 0);
+    const fallbackSpan = Number(room?.properties?.[dimensionKey] || 0);
+    const roomSpan = houseSpan > 0 && ratio > 0 ? houseSpan * ratio : fallbackSpan;
+    const start = clamp(Number(wall?.start_ratio ?? 0), 0, 1);
+    const end = clamp(Number(wall?.end_ratio ?? 1), 0, 1);
+    return Math.abs(end - start) * roomSpan;
+}
+
+function formatRoomWallLength(room, wall) {
+    const unit = String(room?.properties?.linear_unit || "feet");
+    const length = getRoomWallLength(room, wall);
+    if (unit === "feet") {
+        const totalInches = Math.max(0, Math.round(length * 12));
+        const feet = Math.floor(totalInches / 12);
+        const inches = totalInches % 12;
+        return `${feet}'-${inches}\"`;
+    }
+    return `${formatNumber(length)} ${unit}`;
+}
+
+function getWallThicknessInches(wall) {
+    return clamp(Number(wall?.thickness_inches ?? DEFAULT_WALL_THICKNESS_INCHES), 1, 24);
+}
+
+function formatWallThickness(wall) {
+    return `${formatNumber(getWallThicknessInches(wall))}\"`;
+}
+
+function convertRoomLengthToInches(value, linearUnit) {
+    if (linearUnit === "meters") {
+        return value * 39.3701;
+    }
+    if (linearUnit === "centimeters") {
+        return value * 0.393701;
+    }
+    if (linearUnit === "inches") {
+        return value;
+    }
+    return value * 12;
+}
+
+function buildRoomSegmentEditor(kind, items, room) {
     const list = Array.isArray(items) ? items : [];
-    const rows = list.map((item, index) => `
-        <div class="segment-row">
-            <select data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="edge">
-                ${["top", "right", "bottom", "left"].map((edge) => (
-                    `<option value="${edge}" ${String(item.edge || "top") === edge ? "selected" : ""}>${escapeHtml(titleCase(edge))}</option>`
-                )).join("")}
-            </select>
-            <input type="number" min="0" max="100" step="1"
-                value="${Math.round(Number(item.start_ratio ?? 0) * 100)}"
-                data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="start_ratio" />
-            <span class="segment-separator">to</span>
-            <input type="number" min="0" max="100" step="1"
-                value="${Math.round(Number(item.end_ratio ?? 1) * 100)}"
-                data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="end_ratio" />
-            <button type="button" class="segment-remove"
-                data-segment-action="remove" data-segment-kind="${kind}" data-segment-index="${index}">Remove</button>
+    const rows = list.map((item, index) => {
+        const length = kind === "walls"
+            ? `<span class="segment-length">
+                Length: <strong>${escapeHtml(formatRoomWallLength(room, item))}</strong>
+                <label>Thickness:
+                    <input class="segment-thickness-editor" type="number" min="1" max="24" step="0.5"
+                        value="${formatNumber(getWallThicknessInches(item))}" data-segment-kind="${kind}"
+                        data-segment-index="${index}" data-segment-field="thickness_inches" aria-label="Wall thickness in inches" /> in
+                </label>
+            </span>`
+            : "";
+        return `
+        <div class="segment-item">
+            <div class="segment-row">
+                <select data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="edge">
+                    ${["top", "right", "bottom", "left"].map((edge) => (
+                        `<option value="${edge}" ${String(item.edge || "top") === edge ? "selected" : ""}>${escapeHtml(titleCase(edge))}</option>`
+                    )).join("")}
+                </select>
+                <input type="number" min="0" max="100" step="1"
+                    value="${Math.round(Number(item.start_ratio ?? 0) * 100)}"
+                    data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="start_ratio" />
+                <span class="segment-separator">to</span>
+                <input type="number" min="0" max="100" step="1"
+                    value="${Math.round(Number(item.end_ratio ?? 1) * 100)}"
+                    data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="end_ratio" />
+                <button type="button" class="segment-remove"
+                    data-segment-action="remove" data-segment-kind="${kind}" data-segment-index="${index}">Remove</button>
+            </div>
+            ${length}
         </div>
-    `).join("");
+    `;
+    }).join("");
+    const totalLength = kind === "walls" && list.length
+        ? ` | Total: ${formatNumber(list.reduce((sum, wall) => sum + getRoomWallLength(room, wall), 0))} ${room.properties.linear_unit || "feet"}`
+        : "";
     return `
         <div class="segment-editor">
-            <div class="segment-editor-summary">${escapeHtml(formatPropertyValue(kind, list, {}))}</div>
+            <div class="segment-editor-summary">${escapeHtml(formatPropertyValue(kind, list, {}))}${escapeHtml(totalLength)}</div>
             <div class="segment-editor-list">${rows || `<div class="segment-empty">No ${escapeHtml(kind)}</div>`}</div>
             <button type="button" class="segment-add" data-segment-action="add" data-segment-kind="${kind}">Add ${escapeHtml(titleCase(kind.slice(0, -1) || kind))}</button>
         </div>
@@ -3109,14 +4440,103 @@ function buildStairWidthEditor(value) {
     `;
 }
 
+function buildRoomDimensionEditor(room, dimension, value, properties) {
+    const house = state.assessment?.objects?.housePlan?.properties || {};
+    const limits = getRoomResizeLimits(room);
+    const isWidth = dimension === "width";
+    const houseDimension = Math.max(Number(isWidth ? house.width : house.height) || 0, 1);
+    const position = Number(room.properties[isWidth ? "floor_x_ratio" : "floor_y_ratio"] || 0);
+    const minRatio = isWidth ? limits.minWidth : limits.minHeight;
+    const maxRatio = isWidth ? limits.maxWidth(position) : limits.maxHeight(position);
+    const unit = String(properties.linear_unit || room.properties.linear_unit || "feet");
+    const numericValue = Number(value || 0);
+    return `
+        <div class="room-dimension-editor">
+            <input type="number" min="${roundValue(minRatio * houseDimension, 2)}"
+                max="${roundValue(maxRatio * houseDimension, 2)}" step="0.1"
+                value="${numericValue.toFixed(2)}" data-property-editor="room-dimension"
+                data-room-dimension="${dimension}" aria-label="Room ${dimension} in ${escapeHtml(unit)}" />
+            <span class="room-dimension-unit">${escapeHtml(unit)}</span>
+        </div>
+    `;
+}
+
+function buildRoomTypeEditor(value) {
+    const currentType = String(value || "room").trim().toLowerCase();
+    const types = ROOM_TYPE_OPTIONS.includes(currentType)
+        ? ROOM_TYPE_OPTIONS
+        : [currentType, ...ROOM_TYPE_OPTIONS];
+    const options = types.map((roomType) => `
+        <option value="${escapeHtml(roomType)}"${roomType === currentType ? " selected" : ""}>
+            ${escapeHtml(titleCase(roomType.replaceAll("_", " ")))}
+        </option>
+    `).join("");
+    return `
+        <select class="room-type-editor" data-property-editor="room-type" aria-label="Room type">
+            ${options}
+        </select>
+    `;
+}
+
+function buildRoomNameEditor(value) {
+    return `
+        <input class="room-name-editor" type="text" maxlength="80" required
+            value="${escapeHtml(String(value || "Room"))}" data-property-editor="room-name"
+            aria-label="Room name" />
+    `;
+}
+
 function handlePropertyEditorChange(event) {
     const target = event.target;
+    if (target.dataset.interiorSegmentField) {
+        applyInteriorSegmentField(target.dataset.interiorSegmentField, target.value);
+        return;
+    }
+    if (target.dataset.fixtureField) {
+        window.clearTimeout(state.interiorFixtureEditTimer);
+        state.interiorFixtureEditTimer = null;
+        applyBathroomFixtureField(target.dataset.fixtureField, target.value);
+        return;
+    }
+    if (target.dataset.interiorField || target.dataset.interiorColorIndex) {
+        applyInteriorDesignEdit(target);
+        return;
+    }
     if (target.dataset.propertyEditor === "stair-width") {
         const room = state.selectedKind === "room" ? getSelectedObject() : null;
         if (!room) {
             return;
         }
         applyStairWidthValue(room, Number(target.value || 3));
+        renderSelection();
+        return;
+    }
+    if (target.dataset.propertyEditor === "room-dimension") {
+        const room = state.selectedKind === "room" ? getSelectedObject() : null;
+        if (!room) {
+            return;
+        }
+        applyRoomDimensionValue(room, target.dataset.roomDimension, Number(target.value));
+        renderSelection();
+        return;
+    }
+    if (target.dataset.propertyEditor === "room-type") {
+        const room = state.selectedKind === "room" ? getSelectedObject() : null;
+        if (!room) {
+            return;
+        }
+        applyRoomTypeValue(room, target.value);
+        renderCatalog();
+        renderSelection();
+        return;
+    }
+    if (target.dataset.propertyEditor === "room-name") {
+        const room = state.selectedKind === "room" ? getSelectedObject() : null;
+        if (!room) {
+            return;
+        }
+        applyRoomNameValue(room, target.value);
+        renderCatalog();
         renderSelection();
         return;
     }
@@ -3136,6 +4556,8 @@ function handlePropertyEditorChange(event) {
     }
     if (field === "edge") {
         list[index].edge = String(target.value || "top");
+    } else if (field === "thickness_inches" && kind === "walls") {
+        list[index].thickness_inches = roundValue(clamp(Number(target.value || 6), 1, 24), 2);
     } else {
         const rawValue = clamp(Number(target.value || 0), 0, 100) / 100;
         list[index][field] = roundValue(rawValue, 4);
@@ -3148,6 +4570,273 @@ function handlePropertyEditorChange(event) {
     }
     room.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
     renderSelection();
+}
+
+function addBathroomFixture(type) {
+    const design = getSelectedObject();
+    const sourceRoom = getInteriorSourceRoom(design);
+    const allowedTypes = design ? getInteriorComponentTypes(design).map(([key]) => key) : [];
+    if (!design || !sourceRoom || !allowedTypes.includes(type)) {
+        return;
+    }
+    const fixtures = getBathroomFixtures(design).map((fixture) => ({ ...fixture }));
+    const offset = 6 + (fixtures.length % 6) * 6;
+    const fixture = createBathroomFixture(type, offset, offset);
+    fixtures.push(fixture);
+    state.selectedInteriorFixtureId = fixture.id;
+    state.selectedInteriorSegmentKind = null;
+    state.selectedInteriorSegmentIndex = null;
+    setBathroomFixtureLayout(sourceRoom, fixtures);
+    refreshInteriorDesignWindow();
+}
+
+function addInteriorRoomSegment(kind) {
+    if (!["walls", "doors", "windows"].includes(kind)) {
+        return;
+    }
+    const design = getSelectedObject();
+    const sourceRoom = getInteriorSourceRoom(design);
+    if (!design || !sourceRoom) {
+        return;
+    }
+    const list = Array.isArray(sourceRoom.properties[kind])
+        ? sourceRoom.properties[kind].map((segment) => ({ ...segment }))
+        : [];
+    list.push(buildDefaultSegment(kind));
+    sourceRoom.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    state.selectedInteriorFixtureId = null;
+    state.selectedInteriorSegmentKind = kind;
+    state.selectedInteriorSegmentIndex = list.length - 1;
+    refreshInteriorDesignWindow();
+}
+
+function removeSelectedInteriorRoomSegment() {
+    const design = getSelectedObject();
+    const sourceRoom = getInteriorSourceRoom(design);
+    const kind = state.selectedInteriorSegmentKind;
+    const index = Number(state.selectedInteriorSegmentIndex);
+    if (!design || !sourceRoom || !["walls", "doors", "windows"].includes(kind) || !Number.isInteger(index)) {
+        return;
+    }
+    const list = Array.isArray(sourceRoom.properties[kind])
+        ? sourceRoom.properties[kind].map((segment) => ({ ...segment }))
+        : [];
+    if (!list[index]) {
+        return;
+    }
+    list.splice(index, 1);
+    sourceRoom.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    state.selectedInteriorSegmentIndex = list.length ? Math.min(index, list.length - 1) : null;
+    if (!list.length) {
+        state.selectedInteriorSegmentKind = null;
+    }
+    refreshInteriorDesignWindow();
+}
+
+function applyInteriorSegmentField(field, rawValue) {
+    if (!["edge", "start_ratio", "end_ratio", "thickness_inches"].includes(field)) {
+        return;
+    }
+    const design = getSelectedObject();
+    const sourceRoom = getInteriorSourceRoom(design);
+    const kind = state.selectedInteriorSegmentKind;
+    const index = Number(state.selectedInteriorSegmentIndex);
+    if (!design || !sourceRoom || !["walls", "doors", "windows"].includes(kind) || !Number.isInteger(index)) {
+        return;
+    }
+    const list = Array.isArray(sourceRoom.properties[kind])
+        ? sourceRoom.properties[kind].map((segment) => ({ ...segment }))
+        : [];
+    const segment = list[index];
+    if (!segment) {
+        return;
+    }
+    if (field === "edge") {
+        segment.edge = ["top", "right", "bottom", "left"].includes(rawValue) ? rawValue : "top";
+    } else if (field === "thickness_inches" && kind === "walls") {
+        segment.thickness_inches = roundValue(clamp(Number(rawValue || 6), 1, 24), 2);
+    } else {
+        segment[field] = roundValue(clamp(Number(rawValue || 0), 0, 100) / 100, 4);
+        if (field === "start_ratio" && segment.end_ratio < segment.start_ratio) {
+            segment.end_ratio = segment.start_ratio;
+        }
+        if (field === "end_ratio" && segment.start_ratio > segment.end_ratio) {
+            segment.start_ratio = segment.end_ratio;
+        }
+    }
+    sourceRoom.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    refreshInteriorDesignWindow();
+}
+
+function removeSelectedBathroomFixture() {
+    const design = getSelectedObject();
+    const sourceRoom = getInteriorSourceRoom(design);
+    if (!design || !sourceRoom || !state.selectedInteriorFixtureId) {
+        return;
+    }
+    const fixtures = getBathroomFixtures(design).filter((fixture) => fixture.id !== state.selectedInteriorFixtureId);
+    setBathroomFixtureLayout(sourceRoom, fixtures);
+    state.selectedInteriorFixtureId = fixtures[0]?.id || null;
+    refreshInteriorDesignWindow();
+}
+
+function applyBathroomFixtureField(field, rawValue) {
+    const editableFields = new Set(["width_inches", "depth_inches", "x_inches", "y_inches", "direction_degrees"]);
+    if (!editableFields.has(field) || !state.selectedInteriorFixtureId) {
+        return;
+    }
+    const design = getSelectedObject();
+    const sourceRoom = getInteriorSourceRoom(design);
+    if (!design || !sourceRoom) {
+        return;
+    }
+    const roomDimensions = getInteriorRoomDimensionsInches(design);
+    const roomWidthInches = roomDimensions.width;
+    const roomDepthInches = roomDimensions.height;
+    const fixtures = getBathroomFixtures(design).map((fixture) => ({ ...fixture }));
+    const fixture = fixtures.find((item) => item.id === state.selectedInteriorFixtureId);
+    if (!fixture) {
+        return;
+    }
+
+    const value = Number(rawValue || 0);
+    if (field === "width_inches") {
+        fixture.width_inches = roundValue(clamp(value, 12, Math.max(12, roomWidthInches)), 1);
+        fixture.x_inches = roundValue(clamp(fixture.x_inches, 0, Math.max(0, roomWidthInches - fixture.width_inches)), 1);
+    } else if (field === "depth_inches") {
+        fixture.depth_inches = roundValue(clamp(value, 12, Math.max(12, roomDepthInches)), 1);
+        fixture.y_inches = roundValue(clamp(fixture.y_inches, 0, Math.max(0, roomDepthInches - fixture.depth_inches)), 1);
+    } else if (field === "x_inches") {
+        fixture.x_inches = roundValue(clamp(value, 0, Math.max(0, roomWidthInches - fixture.width_inches)), 1);
+    } else if (field === "y_inches") {
+        fixture.y_inches = roundValue(clamp(value, 0, Math.max(0, roomDepthInches - fixture.depth_inches)), 1);
+    } else if (field === "direction_degrees") {
+        const currentDirection = normalizeFixtureDirection(fixture.direction_degrees);
+        const nextDirection = normalizeFixtureDirection(value);
+        if ((currentDirection % 180) !== (nextDirection % 180)) {
+            const nextWidth = fixture.depth_inches;
+            const nextDepth = fixture.width_inches;
+            fixture.width_inches = roundValue(clamp(nextWidth, 12, Math.max(12, roomWidthInches)), 1);
+            fixture.depth_inches = roundValue(clamp(nextDepth, 12, Math.max(12, roomDepthInches)), 1);
+        }
+        fixture.direction_degrees = nextDirection;
+        fixture.x_inches = roundValue(clamp(fixture.x_inches, 0, Math.max(0, roomWidthInches - fixture.width_inches)), 1);
+        fixture.y_inches = roundValue(clamp(fixture.y_inches, 0, Math.max(0, roomDepthInches - fixture.depth_inches)), 1);
+    }
+    setBathroomFixtureLayout(sourceRoom, fixtures);
+    refreshInteriorDesignWindow();
+}
+
+function applyInteriorDesignEdit(target, options = {}) {
+    if (state.selectedKind !== "interior-design") {
+        return;
+    }
+    const design = getSelectedObject();
+    const sourceRoom = getInteriorSourceRoom(design);
+    if (!design || !sourceRoom) {
+        return;
+    }
+
+    const current = normalizeInteriorDesignOverrides(sourceRoom.properties.interior_design);
+    const next = {
+        ...design.properties,
+        ...current,
+        palette_colors: (current.palette_colors || design.properties.palette_colors).map((color) => ({ ...color })),
+    };
+
+    if (target.dataset.interiorColorIndex) {
+        const index = Number(target.dataset.interiorColorIndex);
+        if (next.palette_colors[index]) {
+            next.palette_colors[index].hex = normalizeHexColor(target.value);
+        }
+    } else if (target.dataset.interiorField) {
+        const field = target.dataset.interiorField;
+        next[field] = field === "estimated_budget"
+            ? Math.max(0, Number(target.value || 0))
+            : String(target.value || "");
+    }
+
+    sourceRoom.properties.interior_design = sanitizeInteriorDesignOverrides(next);
+    if (options.refreshOnly) {
+        refreshInteriorDesignWindow();
+        renderProperties(getSelectedObject());
+        return;
+    }
+    renderCatalog();
+    renderSelection();
+}
+
+function refreshInteriorDesignWindow() {
+    const design = getSelectedObject();
+    if (!design) {
+        return;
+    }
+    const stage = document.querySelector(".interior-room-stage");
+    if (stage) {
+        stage.innerHTML = buildInteriorRoomFloorSvg(design);
+    }
+    const fixtureInspector = document.querySelector(".interior-fixture-inspector");
+    if (fixtureInspector && isEditableInteriorComponentRoom(design)) {
+        fixtureInspector.outerHTML = buildBathroomFixtureInspector(design);
+    }
+    const structureInspector = document.querySelector(".interior-structure-inspector");
+    if (structureInspector) {
+        structureInspector.outerHTML = buildInteriorStructureInspector(design);
+    }
+    const floorValue = document.querySelector("[data-interior-spec='primary_finish']");
+    if (floorValue) {
+        floorValue.textContent = design.properties.primary_finish;
+    }
+    const materialValue = document.querySelector("[data-interior-spec='material_name']");
+    if (materialValue) {
+        materialValue.textContent = design.properties.material_name;
+    }
+    const furnitureValue = document.querySelector("[data-interior-spec='furniture_anchor']");
+    if (furnitureValue) {
+        furnitureValue.textContent = design.properties.furniture_anchor;
+    }
+    const lightingValue = document.querySelector("[data-interior-spec='lighting_fixture']");
+    if (lightingValue) {
+        lightingValue.textContent = design.properties.lighting_fixture;
+    }
+    const budgetValue = document.querySelector("[data-interior-spec='estimated_budget']");
+    if (budgetValue) {
+        budgetValue.textContent = formatCurrency(design.properties.estimated_budget, design.properties.cost_currency);
+    }
+}
+
+function sanitizeInteriorDesignOverrides(value) {
+    const editableFields = [
+        "primary_finish",
+        "material_name",
+        "furniture_anchor",
+        "lighting_fixture",
+        "textile_selection",
+        "window_treatment",
+        "estimated_budget",
+        "procurement_status",
+        "palette_colors",
+        "fixture_layout",
+    ];
+    return editableFields.reduce((memo, key) => {
+        if (value[key] !== undefined) {
+            if (key === "palette_colors") {
+                memo[key] = value[key].map((color) => ({ name: String(color.name || "Color"), hex: normalizeHexColor(color.hex) }));
+            } else if (key === "fixture_layout") {
+                memo[key] = Array.isArray(value[key]) ? value[key].map((fixture) => ({ ...fixture })) : [];
+            } else {
+                memo[key] = value[key];
+            }
+        }
+        return memo;
+    }, {});
+}
+
+function getInteriorSourceRoom(design) {
+    if (!design || !state.assessment?.objects?.rooms) {
+        return null;
+    }
+    return state.assessment.objects.rooms.find((room) => room.id === design.properties.source_room_id) || null;
 }
 
 function handlePropertyEditorClick(event) {
@@ -3174,7 +4863,7 @@ function handlePropertyEditorClick(event) {
 
 function buildDefaultSegment(kind) {
     if (kind === "walls") {
-        return { edge: "top", start_ratio: 0, end_ratio: 1 };
+        return { edge: "top", start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES };
     }
     if (kind === "doors") {
         return { edge: "bottom", start_ratio: 0.38, end_ratio: 0.62 };
@@ -3202,6 +4891,44 @@ function applyStairWidthValue(room, widthFeet) {
     syncRoomPhysicalProperties(room);
 }
 
+function applyRoomDimensionValue(room, dimension, rawValue) {
+    if (dimension !== "width" && dimension !== "height") {
+        return;
+    }
+    const house = state.assessment?.objects?.housePlan?.properties || {};
+    const isWidth = dimension === "width";
+    const ratioKey = isWidth ? "floor_width_ratio" : "floor_height_ratio";
+    const positionKey = isWidth ? "floor_x_ratio" : "floor_y_ratio";
+    const houseDimension = Math.max(Number(isWidth ? house.width : house.height) || 0, 1);
+    const position = Number(room.properties[positionKey] || 0);
+    const limits = getRoomResizeLimits(room);
+    const minRatio = isWidth ? limits.minWidth : limits.minHeight;
+    const maxRatio = isWidth ? limits.maxWidth(position) : limits.maxHeight(position);
+    const requestedRatio = Number.isFinite(rawValue) ? rawValue / houseDimension : minRatio;
+
+    room.properties[ratioKey] = roundValue(clamp(requestedRatio, minRatio, maxRatio), 4);
+    syncRoomPhysicalProperties(room);
+}
+
+function applyRoomTypeValue(room, rawValue) {
+    const roomType = String(rawValue || "room").trim().toLowerCase();
+    if (!roomType) {
+        return;
+    }
+    room.properties.room_type = roomType;
+    room.properties.stair_direction ||= "up";
+    room.subtitle = `${room.properties.level_name || "Floor Plan"} | ${roomType.replaceAll("_", " ")}`;
+    syncRoomPhysicalProperties(room);
+}
+
+function applyRoomNameValue(room, rawValue) {
+    const roomName = String(rawValue || "").trim();
+    if (!roomName) {
+        return;
+    }
+    room.label = roomName;
+}
+
 function formatAreaValue(area, areaUnit) {
     if (areaUnit === "square feet") {
         return `${formatNumber(Number(area) / 43560)} acre`;
@@ -3217,6 +4944,14 @@ function shouldDisplayProperty(item, key) {
             "floor_y_ratio",
             "floor_width_ratio",
             "floor_height_ratio",
+        ]).has(key);
+    }
+    if (item.kind === "interior-design") {
+        return !new Set([
+            "source_room_id",
+            "room_width",
+            "room_height",
+            "fixture_layout",
         ]).has(key);
     }
     return true;
@@ -3243,6 +4978,24 @@ function formatPropertyLabel(key) {
         floor_width_ratio: "Floor Width Ratio",
         floor_height_ratio: "Floor Height Ratio",
         stair_direction: "Stair Direction",
+        room_design_id: "Room Design ID",
+        target_room_id: "Target Room ID",
+        room_label: "Room",
+        scheme_name: "Design Scheme",
+        palette_name: "Palette",
+        palette_colors: "Palette Colors",
+        primary_finish: "Primary Finish",
+        surface_type: "Surface Type",
+        material_name: "Material",
+        color_name: "Primary Color",
+        furniture_anchor: "Furniture",
+        lighting_fixture: "Lighting",
+        textile_selection: "Textile",
+        window_treatment: "Window Treatment",
+        estimated_budget: "Estimated Budget",
+        cost_currency: "Currency",
+        vendor_name: "Vendor",
+        procurement_status: "Procurement Status",
     };
     return customLabels[key] || titleCase(String(key).replaceAll("_", " "));
 }
@@ -3269,6 +5022,12 @@ function formatPropertyValue(key, value, properties) {
     if (key === "stair_clear_width_feet") {
         return `${formatNumber(value)} ft`;
     }
+    if (key === "estimated_budget") {
+        return formatCurrency(value, properties.cost_currency);
+    }
+    if (key === "palette_colors" && Array.isArray(value)) {
+        return value.map((color) => `${color.name} ${color.hex}`).join(", ");
+    }
     if (key === "walls") {
         return formatRoomSegmentSummary(value, "walls");
     }
@@ -3282,6 +5041,16 @@ function formatPropertyValue(key, value, properties) {
         return value.join(", ");
     }
     return stringifyValue(value);
+}
+
+function formatCurrency(value, currency) {
+    const amount = Number(value || 0);
+    const currencyCode = currency || "USD";
+    return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currencyCode,
+        maximumFractionDigits: 0,
+    }).format(amount);
 }
 
 function convertLengthToFeet(value, linearUnit) {

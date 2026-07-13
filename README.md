@@ -12,11 +12,12 @@ The project currently focuses on:
 - Neo4j-backed parcel browsing and review
 - editable house-footprint modeling inside the parcel
 - starter room and utility-connection modeling derived from the house footprint
+- ontology-backed interior design planning for room schemes, finishes, furnishings, lighting, budgets, and procurement
 - Suffolk contour-based parcel elevation summaries
 - ontology-backed landscape feature planning for hillside and irregular lots
 - a browser-based three-panel property navigator for parcel, house, room, utility, edge, vertex, and design-feature objects
 
-This is an early property-planning foundation, not yet a full interior-design, construction-management, or maintenance platform.
+This is an early property-planning foundation, not yet a full construction-management or maintenance platform.
 
 ## Project Layout
 
@@ -124,6 +125,11 @@ House ontology artifacts:
 - [House.rdf](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/house/House.rdf)
 - [House.cypher](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/house/House.cypher)
 
+Interior design ontology artifacts:
+
+- [InteriorDesign.rdf](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.rdf)
+- [InteriorDesign.cypher](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.cypher)
+
 ## Neo4j Notes
 
 - The Neo4j-first workflow expects parcel data loaded into `hp62n`.
@@ -136,5 +142,5 @@ House ontology artifacts:
 ## Notes
 
 - Browser file loading analyzes the selected parcel without writing to Neo4j.
-- The current room and utility generation is intentionally simple and serves as a graph foundation for future interior, build, and maintenance planning.
+- The current room and utility generation is intentionally simple and serves as a graph foundation for richer interior, build, and maintenance planning.
 - The project is still an early foundation that we can extend into richer house, circulation, utility, and maintenance workflows.

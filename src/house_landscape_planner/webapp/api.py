@@ -124,6 +124,7 @@ class RoomUpdateRequest(BaseModel):
     walls: list[dict[str, object]] = Field(default_factory=list)
     doors: list[dict[str, object]] = Field(default_factory=list)
     windows: list[dict[str, object]] = Field(default_factory=list)
+    interior_design: dict[str, object] = Field(default_factory=dict)
 
 
 class DesignSaveRequest(BaseModel):
@@ -546,6 +547,7 @@ def build_room_objects(rooms: list[RoomSummary]) -> list[RoomObjectResponse]:
                 "walls": room.walls,
                 "doors": room.doors,
                 "windows": room.windows,
+                "interior_design": room.interior_design,
             },
         )
         for room in rooms
@@ -616,6 +618,7 @@ def deserialize_rooms(items: list[RoomUpdateRequest]) -> list[RoomSummary]:
             walls=list(item.walls),
             doors=list(item.doors),
             windows=list(item.windows),
+            interior_design=dict(item.interior_design),
         )
         for item in items
     ]

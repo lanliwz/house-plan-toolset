@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=21">
+    <link rel="stylesheet" href="/static/css/styles.css?v=37">
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.umd.min.js"></script>
     <script>
         (function () {
@@ -159,6 +159,17 @@
                     </div>
 
                     <div class="nav-section">
+                        <button class="nav-section-header" data-section-toggle="interior-design-list" type="button" aria-expanded="true">
+                            <span class="section-toggle">▼</span>
+                            <span class="section-title">Interior Design</span>
+                            <span class="section-count" id="interior-design-count">0</span>
+                        </button>
+                        <div id="interior-design-list" class="catalog-list">
+                            <div class="placeholder">Room design schemes will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="nav-section">
                         <button class="nav-section-header" data-section-toggle="utility-list" type="button" aria-expanded="true">
                             <span class="section-toggle">▼</span>
                             <span class="section-title">Utilities</span>
@@ -245,6 +256,7 @@
                     <button class="view-toggle-button active" id="view-parcel" type="button">Parcel</button>
                     <button class="view-toggle-button" id="view-garden" type="button">Garden</button>
                     <button class="view-toggle-button" id="view-patio" type="button">Patio</button>
+                    <button class="view-toggle-button" id="view-interior-design" type="button">Interior Design</button>
                     <button class="view-toggle-button" id="view-basement" type="button">Basement</button>
                     <button class="view-toggle-button" id="view-first-floor" type="button">First Floor</button>
                     <button class="view-toggle-button" id="view-second-floor" type="button">Second Floor</button>
@@ -266,6 +278,12 @@
                     <div class="view-panel" id="patio-view-panel">
                         <div class="detail-canvas" id="patio-canvas">
                             <div class="placeholder">Patio view will appear here.</div>
+                        </div>
+                    </div>
+
+                    <div class="view-panel" id="interior-design-view-panel">
+                        <div class="detail-canvas" id="interior-design-canvas">
+                            <div class="placeholder">Interior design schedule will appear here.</div>
                         </div>
                     </div>
 
@@ -352,6 +370,6 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=41"></script>
+    <script src="/static/js/app.js?v=64"></script>
 </body>
 </html>

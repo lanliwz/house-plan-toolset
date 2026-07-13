@@ -357,6 +357,13 @@
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
   </owl:DatatypeProperty>
 
+  <owl:DatatypeProperty rdf:about="#interiorDesignLayoutJson">
+    <rdfs:label>interior design layout json</rdfs:label>
+    <skos:definition>Serialized room-level interior component layout, including fixture type, size, and position, used to persist edits made in the interior-design viewport.</skos:definition>
+    <rdfs:domain rdf:resource="#Room"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
   <owl:DatatypeProperty rdf:about="#taskId">
     <rdfs:label>task id</rdfs:label>
     <skos:definition>Stable identifier for a maintenance task instance.</skos:definition>

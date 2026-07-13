@@ -592,6 +592,7 @@ def serialize_room_summary(room: RoomSummary) -> dict[str, Any]:
         "walls": room.walls,
         "doors": room.doors,
         "windows": room.windows,
+        "interior_design": room.interior_design,
     }
 
 
@@ -629,6 +630,7 @@ def load_saved_room_layouts(value: Any) -> list[RoomSummary]:
                 walls=load_json_layout(item.get("walls")) if isinstance(item.get("walls"), str) else list(item.get("walls") or []),
                 doors=load_json_layout(item.get("doors")) if isinstance(item.get("doors"), str) else list(item.get("doors") or []),
                 windows=load_json_layout(item.get("windows")) if isinstance(item.get("windows"), str) else list(item.get("windows") or []),
+                interior_design=load_json_object(item.get("interior_design")),
             )
         )
     return rooms
@@ -1048,6 +1050,7 @@ def sync_default_rooms(session, *, house_id: str, house_plan_points: list[tuple[
                 room.wallLayoutJson = $wall_layout_json,
                 room.doorLayoutJson = $door_layout_json,
                 room.windowLayoutJson = $window_layout_json,
+                room.interiorDesignLayoutJson = $interior_design_layout_json,
                 room.uri = $room_uri
             MERGE (house)-[:HAS_ROOM {materialized: true, rdfs__label: 'has room'}]->(room)
             """,
@@ -1065,9 +1068,9 @@ def sync_default_rooms(session, *, house_id: str, house_plan_points: list[tuple[
             wall_layout_json=json.dumps(room.walls),
             door_layout_json=json.dumps(room.doors),
             window_layout_json=json.dumps(room.windows),
+            interior_design_layout_json=json.dumps(room.interior_design),
             room_uri=f"urn:house-plan-toolset:room:{room.room_id}",
         ).consume()
-
 
 def sync_default_utility_connections(session, *, house_id: str) -> None:
     for utility in build_default_utility_connections(house_id):
@@ -1181,6 +1184,7 @@ def hydrate_room_summary(props: dict[str, Any]) -> RoomSummary | None:
         walls=load_json_layout(props.get("wallLayoutJson")),
         doors=load_json_layout(props.get("doorLayoutJson")),
         windows=load_json_layout(props.get("windowLayoutJson")),
+        interior_design=load_json_object(props.get("interiorDesignLayoutJson")),
     )
 
 
@@ -1228,6 +1232,7 @@ def sync_rooms(session, *, parcel_id: str, rooms: list[RoomSummary]) -> None:
                 room.wallLayoutJson = $wall_layout_json,
                 room.doorLayoutJson = $door_layout_json,
                 room.windowLayoutJson = $window_layout_json,
+                room.interiorDesignLayoutJson = $interior_design_layout_json,
                 room.uri = $room_uri
             MERGE (house)-[:HAS_ROOM {materialized: true, rdfs__label: 'has room'}]->(room)
             """,
@@ -1250,18 +1255,9 @@ def sync_rooms(session, *, parcel_id: str, rooms: list[RoomSummary]) -> None:
             wall_layout_json=json.dumps(room.walls),
             door_layout_json=json.dumps(room.doors),
             window_layout_json=json.dumps(room.windows),
+            interior_design_layout_json=json.dumps(room.interior_design),
             room_uri=f"urn:house-plan-toolset:room:{room.room_id}",
         ).consume()
-
-
-def load_json_layout(raw_value: Any) -> list[dict[str, Any]]:
-    if not raw_value:
-        return []
-    try:
-        value = json.loads(str(raw_value))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return []
-    return [dict(item) for item in value if isinstance(item, dict)]
 
     stale_ids = existing_ids - incoming_ids
     if stale_ids:
@@ -1276,6 +1272,28 @@ def load_json_layout(raw_value: Any) -> list[dict[str, Any]]:
             house_id=house_id,
             room_ids=list(stale_ids),
         ).consume()
+
+
+def load_json_layout(raw_value: Any) -> list[dict[str, Any]]:
+    if not raw_value:
+        return []
+    try:
+        value = json.loads(str(raw_value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def load_json_object(raw_value: Any) -> dict[str, Any]:
+    if isinstance(raw_value, dict):
+        return dict(raw_value)
+    if not raw_value:
+        return {}
+    try:
+        value = json.loads(str(raw_value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def hydrate_utility_summary(props: dict[str, Any]) -> UtilityConnectionSummary | None:
@@ -1681,9 +1699,9 @@ def build_postal_address(
         addressId=f"{parcel_key}-address-1",
         streetAddressLine1=street,
         cityName=city,
-        subdivision=USStateEnum[state_code],
+        hasSubdivision=USStateEnum[state_code],
         postalCode=postal_code,
-        country=CountryEnum.UNITED_STATES_OF_AMERICA,
+        hasCountry=CountryEnum.UNITED_STATES_OF_AMERICA,
     )
 
 
@@ -1801,7 +1819,7 @@ def merge_parcel_bundle(session, bundle: ParcelBundle, *, collection_id: str, in
 
 def merge_address(session, *, parcel: Parcel, address: USPostalAddress) -> None:
     address_props = neo4j_compatible(address.model_dump(by_alias=True))
-    subdivision_uri = SUBDIVISION_URI_TEMPLATE.format(state=address.subdivision.value)
+    subdivision_uri = SUBDIVISION_URI_TEMPLATE.format(state=address.has_subdivision.value)
     session.run(
         """
         MATCH (parcel:Parcel:Resource {uri: $parcel_uri})
@@ -1836,8 +1854,8 @@ def merge_address(session, *, parcel: Parcel, address: USPostalAddress) -> None:
         country_uri=USA_URI,
         country_label=CountryEnum.UNITED_STATES_OF_AMERICA.value,
         subdivision_uri=subdivision_uri,
-        subdivision_label=address.subdivision.value,
-        subdivision_code=address.subdivision.value,
+        subdivision_label=address.has_subdivision.value,
+        subdivision_code=address.has_subdivision.value,
         has_parcel_address_uri=f"{PARCEL_NS}hasParcelAddress",
         has_country_uri=f"{PARCEL_NS}hasCountry",
         has_subdivision_uri=f"{PARCEL_NS}hasSubdivision",

@@ -28,6 +28,17 @@ def test_health_endpoint() -> None:
     assert response.json()["status"] == "healthy"
 
 
+def test_web_assets_are_revalidated_and_use_current_cache_versions() -> None:
+    page_response = client.get("/")
+    javascript_response = client.get("/static/js/app.js")
+
+    assert page_response.status_code == 200
+    assert page_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
+    assert javascript_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
+    assert "/static/css/styles.css?v=37" in page_response.text
+    assert "/static/js/app.js?v=64" in page_response.text
+
+
 def test_sample_analysis_endpoint_returns_report_payload() -> None:
     response = client.get("/api/sample")
 
@@ -85,11 +96,12 @@ def test_neo4j_parcel_endpoint_returns_site_assessment(monkeypatch) -> None:
 def test_save_neo4j_features_endpoint_returns_updated_assessment(monkeypatch) -> None:
     saved: dict[str, object] = {}
 
-    def fake_save(parcel_id, *, database="hp62n", features, house_plan_points=None):
+    def fake_save(parcel_id, *, database="hp62n", features, house_plan_points=None, rooms=None):
         saved["parcel_id"] = parcel_id
         saved["database"] = database
         saved["feature_count"] = len(features)
         saved["house_plan_point_count"] = len(house_plan_points or [])
+        saved["rooms"] = rooms or []
 
     monkeypatch.setattr("house_landscape_planner.webapp.main.save_feature_layout_to_neo4j", fake_save)
     monkeypatch.setattr(
@@ -123,11 +135,41 @@ def test_save_neo4j_features_endpoint_returns_updated_assessment(monkeypatch) ->
                 }
             ],
             "house_plan_points": [[0.0, 0.0], [10.0, 0.0], [10.0, 8.0], [0.0, 8.0]],
+            "rooms": [
+                {
+                    "room_id": "room-2",
+                    "label": "Bedroom 2",
+                    "room_type": "bedroom",
+                    "level_name": "second floor",
+                    "area": 120.0,
+                    "area_unit": "square feet",
+                    "width": 10.0,
+                    "height": 12.0,
+                    "linear_unit": "feet",
+                    "notes": "Editable bedroom",
+                    "interior_design": {
+                        "fixture_layout": [
+                            {
+                                "id": "room-2-bed-1",
+                                "type": "bed",
+                                "x_ratio": 0.15,
+                                "y_ratio": 0.2,
+                                "width_inches": 60,
+                                "depth_inches": 80,
+                            }
+                        ]
+                    },
+                }
+            ],
         },
     )
 
     assert response.status_code == 200
-    assert saved == {"parcel_id": "p-1", "database": "hp62n", "feature_count": 1, "house_plan_point_count": 4}
+    assert saved["parcel_id"] == "p-1"
+    assert saved["database"] == "hp62n"
+    assert saved["feature_count"] == 1
+    assert saved["house_plan_point_count"] == 4
+    assert saved["rooms"][0].interior_design["fixture_layout"][0]["type"] == "bed"
     assert response.json()["parcel_name"] == "p-1"
 
 
@@ -318,3 +360,78 @@ def test_analyze_endpoint_rejects_invalid_geojson() -> None:
 
     assert response.status_code == 400
     assert "Unsupported GeoJSON top-level type" in response.json()["detail"]
+
+
+def test_interior_design_assets_include_editable_bathroom_and_bedroom_components() -> None:
+    response = client.get("/static/js/app.js")
+
+    assert response.status_code == 200
+    javascript = response.text
+    assert "const INTERIOR_COMPONENT_TYPES" in javascript
+    assert 'shower: { label: "Shower", widthInches: 30, depthInches: 30' in javascript
+    assert 'bathtub: { label: "Bathtub", widthInches: 60, depthInches: 36' in javascript
+    assert 'bed: { label: "Bed", widthInches: 60, depthInches: 80' in javascript
+    assert 'chair: { label: "Chair", widthInches: 30, depthInches: 30' in javascript
+    assert 'sofa: { label: "Sofa", widthInches: 84, depthInches: 36' in javascript
+    assert 'return "general"' in javascript
+    assert "data-fixture-add" in javascript
+    assert "data-fixture-action=\"resize\"" in javascript
+    assert "const FIXTURE_DIRECTION_OPTIONS" in javascript
+    assert 'data-fixture-field="direction_degrees"' in javascript
+    assert "function normalizeFixtureDirection" in javascript
+    assert 'direction_degrees: 0' in javascript
+    assert "fixture.direction_degrees = nextDirection" in javascript
+    assert "const nextWidth = fixture.depth_inches" in javascript
+    assert 'class="interior-fixture-direction"' in javascript
+    assert "handleInteriorFixturePointerMove" in javascript
+    assert '"interior-design-canvas", "basement-canvas"' in javascript
+    assert 'style="width:${zoomPercent.toFixed(1)}%"' in javascript
+    assert "interior_design: room.properties.interior_design || {}" in javascript
+    assert 'data-interior-segment-add="walls"' in javascript
+    assert 'data-interior-segment-add="doors"' in javascript
+    assert 'data-interior-segment-add="windows"' in javascript
+    assert "buildInteriorBoundarySvg" in javascript
+    assert "applyInteriorSegmentField" in javascript
+
+
+def test_floor_plan_room_dimensions_are_editable() -> None:
+    response = client.get("/static/js/app.js")
+
+    assert response.status_code == 200
+    javascript = response.text
+    assert 'data-property-editor="room-dimension"' in javascript
+    assert 'data-room-dimension="${dimension}"' in javascript
+    assert "function applyRoomDimensionValue" in javascript
+    assert 'item.kind === "room" && key === "height" ? "Depth"' in javascript
+    assert 'data-property-editor="room-type"' in javascript
+    assert "const ROOM_TYPE_OPTIONS" in javascript
+    assert "function applyRoomTypeValue" in javascript
+    assert "function getRoomWallLength" in javascript
+    assert "function buildFloorWallLengthLabel" in javascript
+    assert 'class="segment-length"' in javascript
+    assert 'class="room-wall-dimension-anchor"' in javascript
+    assert 'class="room-wall-extension"' in javascript
+    assert "const totalInches" in javascript
+    assert "const showDimension = !hasSelectedRoom || state.selectedId === room.id" in javascript
+    assert "const dimensionOffset = 12 * inverseZoom" in javascript
+    assert 'data-wall-edge="${edge}"' in javascript
+    assert 'data-property-editor="room-name"' in javascript
+    assert "function applyRoomNameValue" in javascript
+    assert "room.label = roomName" in javascript
+    assert "function getWallThicknessInches" in javascript
+    assert "const DEFAULT_WALL_THICKNESS_INCHES = 4.5" in javascript
+    assert "function isLegacyDefaultWallSet" in javascript
+    assert "function convertRoomLengthToInches" in javascript
+    assert 'data-segment-field="thickness_inches"' in javascript
+    assert 'data-interior-segment-field="thickness_inches"' in javascript
+    assert "const wallThicknessInches = getWallThicknessInches(wall)" in javascript
+    assert 'event.target.dataset.segmentField === "thickness_inches"' in javascript
+    assert "function getInteriorRoomDimensionsInches" in javascript
+    assert "buildWallRectFromPlacement(sourceRoom, segment, x, y, width, height, 0.25)" in javascript
+    assert "const width = roomDimensions.width * ratio" in javascript
+    assert 'target.dataset.interiorSegmentField === "thickness_inches"' in javascript
+    assert "function findOpeningHostWall" in javascript
+    assert "buildOpeningRectFromPlacement(segment, x, y, width, height, sourceRoom, 0.25)" in javascript
+    assert 'id === "bath-bathtub" && type === "bathtub" && widthInches === 36 && depthInches === 72' in javascript
+    assert 'id === "bath-shower" && type === "shower" && widthInches === 51.3 && depthInches === 29.9' in javascript
+    assert "xInches = Math.max(0, roomDimensions.width - widthInches)" in javascript

@@ -104,6 +104,7 @@ class RoomSummary:
     walls: list[dict[str, object]] = field(default_factory=list)
     doors: list[dict[str, object]] = field(default_factory=list)
     windows: list[dict[str, object]] = field(default_factory=list)
+    interior_design: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

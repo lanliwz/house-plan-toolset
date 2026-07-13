@@ -765,6 +765,11 @@ input {
     gap: 8px;
 }
 
+.segment-item {
+    display: grid;
+    gap: 4px;
+}
+
 .segment-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 72px auto 72px auto;
@@ -783,6 +788,30 @@ input {
     font-size: 0.82rem;
 }
 
+.segment-length {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+}
+
+.segment-length strong {
+    color: var(--text-primary);
+}
+
+.segment-length label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.segment-thickness-editor {
+    width: 58px;
+    min-width: 0;
+}
+
 .segment-add,
 .segment-remove {
     justify-self: start;
@@ -795,20 +824,33 @@ input {
     cursor: pointer;
 }
 
-.stair-width-editor {
+.stair-width-editor,
+.room-dimension-editor {
     display: inline-grid;
     grid-template-columns: 88px auto;
     gap: 8px;
     align-items: center;
 }
 
-.stair-width-editor input {
+.stair-width-editor input,
+.room-dimension-editor input {
     width: 100%;
 }
 
-.stair-width-unit {
+.stair-width-unit,
+.room-dimension-unit {
     color: var(--text-muted);
     font-size: 0.88rem;
+}
+
+.room-type-editor {
+    width: min(100%, 190px);
+    min-width: 0;
+}
+
+.room-name-editor {
+    width: min(100%, 190px);
+    min-width: 0;
 }
 
 .metrics-grid {
@@ -1122,6 +1164,38 @@ input {
     stroke: none;
 }
 
+.room-wall-length {
+    fill: #ffffff;
+    font-size: 11px;
+    font-weight: 900;
+    paint-order: stroke;
+    stroke: #101b24;
+    stroke-width: 4px;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+.room-wall-dimension {
+    pointer-events: none;
+}
+
+.room-wall-extension,
+.room-wall-dimension-line,
+.room-wall-dimension-anchor {
+    fill: none;
+    stroke: #f2c86f;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.room-wall-extension {
+    opacity: 0.9;
+}
+
+.room-wall-dimension-anchor {
+    stroke-width: 2.25;
+}
+
 .room-door {
     fill: rgba(242, 200, 121, 0.12);
     stroke: rgba(242, 200, 121, 0.95);
@@ -1164,6 +1238,526 @@ input {
     font-size: 11px;
 }
 
+.interior-design-board {
+    width: 100%;
+    padding: 18px;
+}
+
+.interior-design-summary,
+.interior-design-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.interior-design-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 14px;
+}
+
+.interior-room-window {
+    display: grid;
+    grid-template-columns: minmax(280px, 1.45fr) minmax(240px, 0.85fr);
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.interior-room-preview,
+.interior-room-spec {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.interior-room-preview {
+    min-height: 320px;
+    overflow: hidden;
+}
+
+.interior-fixture-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel-soft);
+}
+
+.interior-fixture-toolbar > span {
+    margin-right: 3px;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.interior-fixture-toolbar > .interior-toolbar-section {
+    margin-left: 8px;
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
+}
+
+.interior-fixture-toolbar button,
+.interior-fixture-remove {
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    padding: 6px 9px;
+    font: inherit;
+    font-size: 0.74rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.interior-fixture-toolbar button:hover {
+    border-color: var(--accent);
+    background: var(--bg-active);
+}
+
+.interior-room-stage {
+    overflow: auto;
+    scrollbar-gutter: stable;
+}
+
+.interior-fixture-hint {
+    margin: 0;
+    padding: 8px 12px 11px;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+.interior-fixture-inspector,
+.interior-structure-inspector {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-panel-soft);
+}
+
+.interior-structure-inspector p {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+}
+
+.interior-fixture-inspector-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.interior-fixture-inspector-heading strong {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-primary);
+}
+
+.interior-fixture-inspector-title {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.interior-fixture-remove {
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+}
+
+:root.light-mode .interior-fixture-remove {
+    color: #b91c1c;
+}
+
+.interior-fixture-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+    margin-top: 12px;
+}
+
+.interior-fixture-fields label {
+    display: grid;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.interior-fixture-fields select {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    padding: 8px;
+}
+
+.interior-segment-length {
+    display: grid;
+    align-content: center;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.interior-segment-length strong {
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.interior-fixture-input {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-panel);
+}
+
+.interior-fixture-input input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    padding: 8px;
+}
+
+.interior-fixture-input > span {
+    padding-right: 8px;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: none;
+}
+
+.interior-room-spec {
+    padding: 16px;
+}
+
+.interior-room-spec h3 {
+    margin: 8px 0 6px;
+    font-size: 1.1rem;
+}
+
+.interior-room-spec p {
+    margin: 0 0 12px;
+    color: var(--text-secondary);
+}
+
+.interior-edit-grid,
+.interior-color-grid {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.interior-edit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.interior-edit-grid label,
+.interior-color-editor {
+    display: grid;
+    gap: 5px;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.interior-edit-grid input,
+.interior-edit-grid select {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-panel-soft);
+    color: var(--text-primary);
+    padding: 9px 10px;
+    font-size: 0.82rem;
+    text-transform: none;
+}
+
+.interior-color-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.interior-color-editor input {
+    width: 100%;
+    height: 34px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-panel-soft);
+}
+
+.interior-spec-list {
+    display: grid;
+    gap: 10px;
+    margin: 14px 0 0;
+}
+
+.interior-spec-list div {
+    display: grid;
+    gap: 3px;
+}
+
+.interior-spec-list dt {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.interior-spec-list dd {
+    margin: 0;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.interior-design-summary > div,
+.interior-design-card {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.interior-design-summary > div {
+    min-height: 76px;
+    padding: 14px;
+    border-radius: 8px;
+}
+
+.interior-design-summary strong {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-primary);
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.interior-design-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.interior-design-card {
+    display: grid;
+    gap: 8px;
+    min-height: 188px;
+    padding: 14px;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.interior-design-card strong {
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.interior-design-card:hover,
+.interior-design-card.selected {
+    border-color: var(--accent);
+    background: var(--bg-active);
+}
+
+.interior-card-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+}
+
+.interior-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+}
+
+.interior-floor-svg {
+    display: block;
+    width: 100%;
+    min-height: 320px;
+}
+
+.interior-floor-shadow {
+    fill: rgba(0, 0, 0, 0.16);
+}
+
+.interior-floor-fill {
+    stroke: none;
+}
+
+.interior-floor-grid {
+    opacity: 0.26;
+}
+
+.interior-floor-grid-line {
+    fill: none;
+    stroke: rgba(20, 30, 35, 0.24);
+    stroke-width: 1;
+}
+
+.interior-floor-outline {
+    fill: none;
+    stroke: rgba(31, 45, 51, 0.72);
+    stroke-width: 2;
+}
+
+.interior-rug {
+    opacity: 0.42;
+    stroke: rgba(255, 255, 255, 0.52);
+    stroke-width: 1.5;
+}
+
+.interior-furniture,
+.interior-fixture {
+    opacity: 0.82;
+    stroke: rgba(255, 255, 255, 0.52);
+    stroke-width: 1.4;
+}
+
+.interior-fixture-component {
+    cursor: grab;
+    touch-action: none;
+}
+
+.interior-fixture-component:active {
+    cursor: grabbing;
+}
+
+.interior-fixture-hitbox {
+    opacity: 0.82;
+    stroke: rgba(255, 255, 255, 0.62);
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+}
+
+.interior-fixture-symbol {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.72);
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+}
+
+.interior-fixture-direction {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.96);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+}
+
+.interior-fixture-label,
+.interior-fixture-size {
+    fill: #ffffff;
+    font-size: 10px;
+    font-weight: 800;
+    text-anchor: middle;
+    pointer-events: none;
+}
+
+.interior-fixture-size {
+    font-size: 8px;
+    font-weight: 700;
+}
+
+.interior-fixture-selection {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2.5;
+    stroke-dasharray: 5 3;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+}
+
+.interior-fixture-resize {
+    fill: var(--accent);
+    stroke: #ffffff;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    cursor: nwse-resize;
+}
+
+.interior-boundary-segment {
+    cursor: pointer;
+    vector-effect: non-scaling-stroke;
+}
+
+.interior-wall {
+    fill: rgba(82, 112, 139, 0.96);
+    stroke: rgba(205, 229, 248, 0.9);
+    stroke-width: 1;
+}
+
+.interior-door {
+    fill: rgba(242, 200, 121, 0.18);
+    stroke: rgba(242, 200, 121, 1);
+    stroke-width: 2;
+    stroke-dasharray: 7 3;
+}
+
+.interior-window {
+    fill: rgba(159, 226, 216, 0.18);
+    stroke: rgba(159, 226, 216, 1);
+    stroke-width: 2;
+    stroke-dasharray: 3 2;
+}
+
+.interior-boundary-segment.selected {
+    stroke: var(--accent);
+    stroke-width: 4;
+    filter: drop-shadow(0 0 3px rgba(233, 177, 77, 0.72));
+}
+
+.interior-wall.selected {
+    stroke-width: 1;
+}
+
+.interior-light {
+    fill: rgba(255, 232, 156, 0.95);
+    stroke: rgba(94, 64, 24, 0.5);
+    stroke-width: 1.4;
+}
+
+.interior-light-line,
+.interior-stair-step,
+.interior-stair-arrow {
+    fill: none;
+    stroke: rgba(255, 232, 156, 0.95);
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+
+.interior-stair-step {
+    stroke: rgba(31, 45, 51, 0.56);
+    stroke-width: 2;
+}
+
+.interior-floor-title {
+    fill: var(--text-primary);
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.interior-floor-note {
+    fill: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+}
+
 .canvas-label {
     fill: var(--text-secondary);
     font-size: 12px;
@@ -1202,6 +1796,10 @@ input {
     .middle-panel {
         min-width: min(560px, 100%);
     }
+
+    .interior-room-window {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 860px) {
@@ -1210,7 +1808,10 @@ input {
     }
 
     .middle-bottom,
-    .metrics-grid {
+    .metrics-grid,
+    .interior-design-summary,
+    .interior-edit-grid,
+    .interior-color-grid {
         grid-template-columns: 1fr;
     }
 

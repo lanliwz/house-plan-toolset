@@ -45,6 +45,14 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 
 
+@app.middleware("http")
+async def revalidate_web_assets(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+    return response
+
+
 @app.get("/")
 async def root(request: Request):
     return templates.TemplateResponse(

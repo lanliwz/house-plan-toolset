@@ -1,0 +1,288 @@
+<?xml version="1.0"?>
+<rdf:RDF
+    xmlns="http://www.onto2ai-toolset.com/ontology/interior-design/InteriorDesign#"
+    xml:base="http://www.onto2ai-toolset.com/ontology/interior-design/InteriorDesign"
+    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    xmlns:owl="http://www.w3.org/2002/07/owl#"
+    xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+    xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#"
+    xmlns:house="http://www.onto2ai-toolset.com/ontology/house/House#">
+
+  <owl:Ontology rdf:about="http://www.onto2ai-toolset.com/ontology/interior-design/InteriorDesign">
+    <rdfs:label>interior design ontology</rdfs:label>
+    <skos:definition>Ontology for modeling interior design plans, room-level schemes, finishes, materials, furnishings, lighting, budgets, and procurement decisions attached to residential rooms.</skos:definition>
+  </owl:Ontology>
+
+  <owl:Class rdf:about="#InteriorDesignPlan">
+    <rdfs:label>interior design plan</rdfs:label>
+    <skos:definition>A coordinated interior design plan for a house or project phase.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#DesignScheme">
+    <rdfs:label>design scheme</rdfs:label>
+    <skos:definition>A named aesthetic and functional concept used to guide room selections, color direction, material palette, and furnishing decisions.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#RoomDesign">
+    <rdfs:label>room design</rdfs:label>
+    <skos:definition>A room-specific interior design specification linked to an existing house room.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#FinishSpecification">
+    <rdfs:label>finish specification</rdfs:label>
+    <skos:definition>A surface finish selection for floor, wall, ceiling, trim, cabinet, countertop, or similar interior application.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#Material">
+    <rdfs:label>material</rdfs:label>
+    <skos:definition>A physical material or product family used in an interior finish, furnishing, or fixture.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#ColorSpecification">
+    <rdfs:label>color specification</rdfs:label>
+    <skos:definition>A named color, palette entry, or product color value used by a design scheme or finish specification.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#FurnitureItem">
+    <rdfs:label>furniture item</rdfs:label>
+    <skos:definition>A movable interior furnishing selected for a room, such as a sofa, table, chair, bed, desk, or storage item.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#LightingFixture">
+    <rdfs:label>lighting fixture</rdfs:label>
+    <skos:definition>A fixed or movable lighting element selected for ambient, task, accent, or decorative lighting needs.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#Textile">
+    <rdfs:label>textile</rdfs:label>
+    <skos:definition>A fabric, rug, upholstery, bedding, or soft-goods selection used in an interior room design.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#WindowTreatment">
+    <rdfs:label>window treatment</rdfs:label>
+    <skos:definition>A shade, blind, curtain, drapery, or related treatment selected for privacy, daylight control, acoustics, or visual character.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#BudgetAllowance">
+    <rdfs:label>budget allowance</rdfs:label>
+    <skos:definition>A planned budget amount for a room, category, product, fixture, or finish package.</skos:definition>
+  </owl:Class>
+
+  <owl:Class rdf:about="#ProcurementItem">
+    <rdfs:label>procurement item</rdfs:label>
+    <skos:definition>An item tracked for sourcing, purchasing, delivery, installation, or replacement in the interior design workflow.</skos:definition>
+  </owl:Class>
+
+  <owl:ObjectProperty rdf:about="#hasInteriorDesignPlan">
+    <rdfs:label>has interior design plan</rdfs:label>
+    <skos:definition>Relates a house to an interior design plan prepared for that residence.</skos:definition>
+    <rdfs:domain rdf:resource="http://www.onto2ai-toolset.com/ontology/house/House#House"/>
+    <rdfs:range rdf:resource="#InteriorDesignPlan"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#hasDesignScheme">
+    <rdfs:label>has design scheme</rdfs:label>
+    <skos:definition>Relates an interior design plan to the scheme guiding its palette and selections.</skos:definition>
+    <rdfs:domain rdf:resource="#InteriorDesignPlan"/>
+    <rdfs:range rdf:resource="#DesignScheme"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#hasRoomDesign">
+    <rdfs:label>has room design</rdfs:label>
+    <skos:definition>Relates an interior design plan to a room-specific interior design specification.</skos:definition>
+    <rdfs:domain rdf:resource="#InteriorDesignPlan"/>
+    <rdfs:range rdf:resource="#RoomDesign"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#designsRoom">
+    <rdfs:label>designs room</rdfs:label>
+    <skos:definition>Relates a room design specification to the house room it designs.</skos:definition>
+    <rdfs:domain rdf:resource="#RoomDesign"/>
+    <rdfs:range rdf:resource="http://www.onto2ai-toolset.com/ontology/house/House#Room"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#usesFinish">
+    <rdfs:label>uses finish</rdfs:label>
+    <skos:definition>Relates a room design to a finish specification selected for an interior surface or built-in element.</skos:definition>
+    <rdfs:domain rdf:resource="#RoomDesign"/>
+    <rdfs:range rdf:resource="#FinishSpecification"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#specifiesMaterial">
+    <rdfs:label>specifies material</rdfs:label>
+    <skos:definition>Relates a finish, furnishing, fixture, textile, or treatment to its selected material.</skos:definition>
+    <rdfs:range rdf:resource="#Material"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#specifiesColor">
+    <rdfs:label>specifies color</rdfs:label>
+    <skos:definition>Relates a design scheme, finish, furniture item, lighting fixture, textile, or window treatment to a color selection.</skos:definition>
+    <rdfs:range rdf:resource="#ColorSpecification"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#includesFurnitureItem">
+    <rdfs:label>includes furniture item</rdfs:label>
+    <skos:definition>Relates a room design to a furniture item selected for that room.</skos:definition>
+    <rdfs:domain rdf:resource="#RoomDesign"/>
+    <rdfs:range rdf:resource="#FurnitureItem"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#includesLightingFixture">
+    <rdfs:label>includes lighting fixture</rdfs:label>
+    <skos:definition>Relates a room design to a lighting fixture selected for that room.</skos:definition>
+    <rdfs:domain rdf:resource="#RoomDesign"/>
+    <rdfs:range rdf:resource="#LightingFixture"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#includesTextile">
+    <rdfs:label>includes textile</rdfs:label>
+    <skos:definition>Relates a room design to a textile or soft-goods selection.</skos:definition>
+    <rdfs:domain rdf:resource="#RoomDesign"/>
+    <rdfs:range rdf:resource="#Textile"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#includesWindowTreatment">
+    <rdfs:label>includes window treatment</rdfs:label>
+    <skos:definition>Relates a room design to a window treatment selected for one or more room windows.</skos:definition>
+    <rdfs:domain rdf:resource="#RoomDesign"/>
+    <rdfs:range rdf:resource="#WindowTreatment"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#hasBudgetAllowance">
+    <rdfs:label>has budget allowance</rdfs:label>
+    <skos:definition>Relates a design plan, room design, or selected item to its planned budget allowance.</skos:definition>
+    <rdfs:range rdf:resource="#BudgetAllowance"/>
+  </owl:ObjectProperty>
+
+  <owl:ObjectProperty rdf:about="#hasProcurementItem">
+    <rdfs:label>has procurement item</rdfs:label>
+    <skos:definition>Relates a selected design item to its procurement tracking record.</skos:definition>
+    <rdfs:range rdf:resource="#ProcurementItem"/>
+  </owl:ObjectProperty>
+
+  <owl:DatatypeProperty rdf:about="#planId">
+    <rdfs:label>plan id</rdfs:label>
+    <skos:definition>Stable identifier for an interior design plan.</skos:definition>
+    <rdfs:domain rdf:resource="#InteriorDesignPlan"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#schemeName">
+    <rdfs:label>scheme name</rdfs:label>
+    <skos:definition>Name of the design scheme or palette direction.</skos:definition>
+    <rdfs:domain rdf:resource="#DesignScheme"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#roomDesignId">
+    <rdfs:label>room design id</rdfs:label>
+    <skos:definition>Stable identifier for a room-specific interior design specification.</skos:definition>
+    <rdfs:domain rdf:resource="#RoomDesign"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#targetRoomId">
+    <rdfs:label>target room id</rdfs:label>
+    <skos:definition>Identifier of the existing house room that the room design targets.</skos:definition>
+    <rdfs:domain rdf:resource="#RoomDesign"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#finishId">
+    <rdfs:label>finish id</rdfs:label>
+    <skos:definition>Stable identifier for a finish specification.</skos:definition>
+    <rdfs:domain rdf:resource="#FinishSpecification"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#surfaceType">
+    <rdfs:label>surface type</rdfs:label>
+    <skos:definition>Interior surface or element type such as floor, wall, ceiling, trim, cabinet, backsplash, or countertop.</skos:definition>
+    <rdfs:domain rdf:resource="#FinishSpecification"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#materialName">
+    <rdfs:label>material name</rdfs:label>
+    <skos:definition>Name of a material or product family.</skos:definition>
+    <rdfs:domain rdf:resource="#Material"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#colorName">
+    <rdfs:label>color name</rdfs:label>
+    <skos:definition>Name of a color selection.</skos:definition>
+    <rdfs:domain rdf:resource="#ColorSpecification"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#colorHex">
+    <rdfs:label>color hex</rdfs:label>
+    <skos:definition>Hexadecimal color value used for display, palette review, or product matching.</skos:definition>
+    <rdfs:domain rdf:resource="#ColorSpecification"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#itemId">
+    <rdfs:label>item id</rdfs:label>
+    <skos:definition>Stable identifier for a furnishing, fixture, textile, treatment, or procurement item.</skos:definition>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#itemName">
+    <rdfs:label>item name</rdfs:label>
+    <skos:definition>Name of a selected furnishing, fixture, textile, treatment, or procurement item.</skos:definition>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#category">
+    <rdfs:label>category</rdfs:label>
+    <skos:definition>Functional category for a design item, fixture, finish, budget, or procurement record.</skos:definition>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#quantity">
+    <rdfs:label>quantity</rdfs:label>
+    <skos:definition>Planned count or amount for a selected item.</skos:definition>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#decimal"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#estimatedCost">
+    <rdfs:label>estimated cost</rdfs:label>
+    <skos:definition>Estimated monetary amount for a budget allowance, selected item, or procurement item.</skos:definition>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#decimal"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#costCurrency">
+    <rdfs:label>cost currency</rdfs:label>
+    <skos:definition>Currency code or label used for estimated cost values.</skos:definition>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#vendorName">
+    <rdfs:label>vendor name</rdfs:label>
+    <skos:definition>Name of the vendor, manufacturer, retailer, showroom, or trade source for a procurement item.</skos:definition>
+    <rdfs:domain rdf:resource="#ProcurementItem"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#procurementStatus">
+    <rdfs:label>procurement status</rdfs:label>
+    <skos:definition>Status of a procurement item such as candidate, approved, ordered, delivered, installed, returned, or discontinued.</skos:definition>
+    <rdfs:domain rdf:resource="#ProcurementItem"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#priority">
+    <rdfs:label>priority</rdfs:label>
+    <skos:definition>Planning priority for a design room, item, finish, budget, or procurement decision.</skos:definition>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
+  <owl:DatatypeProperty rdf:about="#notes">
+    <rdfs:label>notes</rdfs:label>
+    <skos:definition>Free-form interior design notes, criteria, constraints, or decision rationale.</skos:definition>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+</rdf:RDF>
