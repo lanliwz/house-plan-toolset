@@ -1,146 +1,157 @@
 # House Plan Toolset
 
-Python project for property planning around a single home, starting with parcel review, house-footprint modeling, and early site-design workflows.
+![House Plan Toolset frontpage](resource/images/house-plan-toolset-frontpage.svg)
 
-Repository name: `house-plan-toolset`
+House Plan Toolset is a Python and FastAPI application for reviewing a residential parcel, editing its house and floor plans, designing room interiors, and persisting the result as an ontology-aligned Neo4j graph.
 
-## Current Scope
+## Key Capabilities
 
-The project currently focuses on:
-
-- parcel geometry analysis from GeoJSON
-- Neo4j-backed parcel browsing and review
-- editable house-footprint modeling inside the parcel
-- starter room and utility-connection modeling derived from the house footprint
-- ontology-backed interior design planning for room schemes, finishes, furnishings, lighting, budgets, and procurement
-- Suffolk contour-based parcel elevation summaries
-- ontology-backed landscape feature planning for hillside and irregular lots
-- a browser-based three-panel property navigator for parcel, house, room, utility, edge, vertex, and design-feature objects
-
-This is an early property-planning foundation, not yet a full construction-management or maintenance platform.
-
-## Project Layout
-
-- `src/house_landscape_planner/`
-  - core package, analysis logic, Neo4j loaders, and web app
-- `data/input/`
-  - parcel and house-footprint GeoJSON inputs
-- `data/output/`
-  - generated planning reports
-- `resource/ontology/`
-  - landscape and house ontology source files plus Cypher companions
-- `tests/`
-  - web, loader, and geometry regression coverage
-
-## Web UI
-
-The project includes a FastAPI-based web UI inspired by `neo4j-onto2ai-toolset`.
-It defaults to reading parcel data from the Neo4j `hp62n` database and also supports loading a local parcel GeoJSON file directly in the browser.
-
-Start it with:
-
-```bash
-uv sync
-uv run house-landscape serve --host 127.0.0.1 --port 8181
-```
-
-Then open `http://127.0.0.1:8181`.
-
-The web app lets you:
-
-- browse parcels from Neo4j database `hp62n`
-- load a selected local parcel GeoJSON file with the `Load` action
-- inspect parcel, house, room, utility, edge, vertex, and landscape-feature objects
-- review parcel metrics, assumptions, recommendations, and source parcel properties
-- edit and save house footprints and landscape features back to Neo4j
-- preview and download the generated markdown report
-
-Loader documentation:
-
-- [README4LOADER.md](/Users/weizhang/github/house-plan-toolset/README4LOADER.md)
+- Browse Neo4j parcels or analyze local parcel GeoJSON in a three-panel catalog, viewport, and inspector interface.
+- Edit the house footprint and organize rooms across the basement, first floor, and second floor.
+- Add, remove, move, and resize rooms; edit room name, type, width, and depth; and rotate constrained stair cores.
+- Add, remove, and position walls, doors, and windows. Wall thickness is rendered to scale, openings inherit their host-wall thickness, and engineering-style wall dimensions show length and thickness.
+- Design bathrooms, bedrooms, and general rooms with editable components such as vanities, showers, bathtubs, toilets, beds, storage, chairs, sofas, and tables.
+- Move, resize, remove, and rotate every interior component using Up, Right, Down, and Left directions. Components remain constrained inside the room.
+- Zoom parcel, floor-plan, and interior-design viewports from 50% to 1000%.
+- Save the house footprint, rooms, wall/opening layouts, interior component layouts, and landscape features back to Neo4j.
+- Load Suffolk County house footprints and contour-based parcel elevation data.
+- Generate Markdown site-assessment reports and SVG concept diagrams.
 
 ## Quick Start
 
-1. Sync the project environment with `uv`.
-2. Load a parcel into Neo4j.
-3. Optionally attach a house footprint to the parcel.
-4. Optionally load parcel elevation from Suffolk County contours.
-5. Start the web UI.
+Requirements:
+
+- Python 3.12 or newer
+- [`uv`](https://docs.astral.sh/uv/)
+- Neo4j when using graph-backed loading and saving
+- A sibling `../neo4j-onto2ai-toolset` checkout, as configured in `pyproject.toml`
+
+Install dependencies and start the application:
 
 ```bash
 uv sync
-uv run house-landscape load-neo4j --parcel data/input/parcel_62n.geojson --database hp62n
-uv run house-landscape load-house-footprint --parcel-id 0200154000400039003 --house data/input/house_footprint.geojson --database hp62n
-uv run house-landscape load-elevation --parcel-id 0200154000400039003 --database hp62n
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
-## Development
+Open `http://127.0.0.1:8181`. The web application defaults to database `hp62n`.
 
-Common commands:
+## Neo4j Configuration
+
+Set the standard Onto2AI connection variables before using Neo4j workflows:
 
 ```bash
-uv sync
-uv run python -m pytest
-uv run house-landscape load-neo4j --parcel data/input/parcel_62n.geojson --database hp62n
-uv run house-landscape load-house-footprint --parcel-id 0200154000400039003 --house data/input/house_footprint.geojson --database hp62n
-uv run house-landscape load-elevation --parcel-id 0200154000400039003 --database hp62n
+export NEO4J_MODEL_DB_URL="bolt://localhost:7687"
+export NEO4J_MODEL_DB_USERNAME="neo4j"
+export NEO4J_MODEL_DB_PASSWORD="your_password"
+```
+
+Load the bundled parcel, attach a house footprint, optionally refresh elevation, and start the UI:
+
+```bash
+uv run house-landscape load-neo4j \
+  --parcel /path/to/parcel.geojson \
+  --database hp62n
+
+uv run house-landscape load-house-footprint \
+  --parcel-id 0200154000400039003 \
+  --house /path/to/house-footprint.geojson \
+  --database hp62n
+
+uv run house-landscape load-elevation \
+  --parcel-id 0200154000400039003 \
+  --database hp62n
+
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
-## Expected Inputs
+To obtain the house footprint directly from Suffolk GIS, use:
 
-### Parcel GeoJSON
+```bash
+uv run house-landscape load-house-footprint-gis \
+  --parcel-id 0200154000400039003 \
+  --database hp62n
+```
 
-- `FeatureCollection`, `Feature`, `Polygon`, and `MultiPolygon` are supported
-- the first polygon ring is used as the parcel boundary
-- scalar parcel properties are preserved in the report and Neo4j parcel node
+See [README4LOADER.md](README4LOADER.md) for the complete loader and persistence workflow.
 
-### House Footprint GeoJSON
+## Floor and Interior Editing
 
-- exactly one `Feature`, `Polygon`, or `MultiPolygon` footprint is expected
-- the first polygon ring is used as the editable house footprint
-- loading a footprint into Neo4j also generates starter `Room` and `UtilityConnection` graph objects
+Floor-plan rooms expose editable identity, geometry, and structure:
 
-## Current Analysis
+- room name and room type
+- physical width and depth
+- floor position and footprint
+- stair direction and constrained stair width
+- wall edge, span, and thickness
+- door and window edge and span
 
-The generated report currently includes:
+The interior-design viewport supports bathroom, bedroom, and general-room component libraries. Each component stores its type, label, position, size, and `direction_degrees`. A 90-degree direction change swaps the occupied width and depth, then clamps the component to the room boundary.
 
-- parcel area, perimeter, bounding box, centroid, and irregularity score
-- stored Suffolk contour-based elevation range and estimated relief when loaded
-- ontology-backed landscape features mapped to concept zones such as arrival gardens, circulation paths, terraces, bioswales, and privacy planting
-- a starter house-program section when a house footprint is available
-- a simple steep-site planning checklist tailored to hillside residential landscaping
-- suggested next data to collect for more accurate property planning
+Generated residential walls default to a 4.5-inch finished partition. The wall editor accepts 1–24 inches, and the viewport maintains the physical wall-to-room ratio at every zoom level.
+
+The Save action is available for parcels loaded from Neo4j. Browser-only GeoJSON analysis remains read-only.
+
+## CLI Commands
+
+```text
+house-landscape analyze                  Generate a Markdown site assessment
+house-landscape illustrate               Generate an SVG concept-zoning diagram
+house-landscape serve                    Start the FastAPI web application
+house-landscape load-neo4j               Load parcel GeoJSON into Neo4j
+house-landscape load-house-footprint     Attach local house-footprint GeoJSON
+house-landscape load-house-footprint-gis Attach the Suffolk GIS house footprint
+house-landscape load-elevation           Refresh Suffolk contour elevation data
+```
+
+Use `uv run house-landscape <command> --help` for command-specific options.
+
+## API Routes
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Application health check |
+| `GET` | `/api/sample` | Sample assessment payload |
+| `GET` | `/api/neo4j/parcels` | List parcels in a Neo4j database |
+| `GET` | `/api/neo4j/parcels/{parcel_id}` | Load a parcel assessment and saved design |
+| `POST` | `/api/neo4j/parcels/{parcel_id}/features` | Save landscape, house, room, structure, and interior edits |
+| `DELETE` | `/api/neo4j/parcels/{parcel_id}/features/{feature_id}` | Remove a landscape feature |
+| `POST` | `/api/neo4j/parcels/{parcel_id}/house-footprint` | Upload a local house footprint |
+| `POST` | `/api/neo4j/parcels/{parcel_id}/house-footprint/gis` | Load a Suffolk GIS house footprint |
+| `POST` | `/api/neo4j/parcels/{parcel_id}/elevation` | Refresh Suffolk contour elevation |
+| `POST` | `/api/analyze` | Analyze uploaded parcel GeoJSON without saving |
+
+## Project Layout
+
+```text
+data/input/                         Optional local parcel and footprint inputs
+data/output/                        Generated reports and diagrams
+resource/images/                    Repository documentation artwork
+resource/ontology/                  RDF ontologies and Cypher companions
+src/house_landscape_planner/        Analysis, models, loaders, CLI, and web app
+tests/                              Loader, geometry, API, and UI regressions
+```
 
 ## Ontologies
 
-Landscape ontology artifacts:
+RDF is the source of truth. Cypher companions mirror the same URI base, class/property fragments, and semantics.
 
-- [Landscape.rdf](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.rdf)
-- [Landscape.cypher](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.cypher)
+- Landscape: [Landscape.rdf](resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.rdf) and [Landscape.cypher](resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.cypher)
+- House: [House.rdf](resource/ontology/www_onto2ai-toolset_com/ontology/house/House.rdf) and [House.cypher](resource/ontology/www_onto2ai-toolset_com/ontology/house/House.cypher)
+- Interior design: [InteriorDesign.rdf](resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.rdf) and [InteriorDesign.cypher](resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.cypher)
 
-House ontology artifacts:
+Persisted `Room` properties include `wallLayoutJson`, `doorLayoutJson`, `windowLayoutJson`, and `interiorDesignLayoutJson` so the browser editor can restore saved room geometry and components.
 
-- [House.rdf](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/house/House.rdf)
-- [House.cypher](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/house/House.cypher)
+## Development and Validation
 
-Interior design ontology artifacts:
+```bash
+uv sync
+uv run pytest -q
+xmllint --noout resource/ontology/www_onto2ai-toolset_com/ontology/house/House.rdf
+xmllint --noout resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.rdf
+```
 
-- [InteriorDesign.rdf](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.rdf)
-- [InteriorDesign.cypher](/Users/weizhang/github/house-plan-toolset/resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.cypher)
+Static web assets use explicit cache-version query strings, and the FastAPI application revalidates `/` and `/static/` responses so browser testing picks up current UI code.
 
-## Neo4j Notes
+## Current Scope
 
-- The Neo4j-first workflow expects parcel data loaded into `hp62n`.
-- Saved house footprints are persisted both as legacy parcel JSON properties and as graph-native `House` and `BuildingFootprint` nodes.
-- Each persisted house footprint generates starter `Room` and `UtilityConnection` nodes linked to the house.
-- `load-elevation` and `POST /api/neo4j/parcels/{parcel_id}/elevation` fetch intersecting Suffolk 5-foot and 10-foot contours, then store the parcel elevation summary on the parcel node.
-- Saved landscape features are mirrored into graph-native `LandscapePlan` and `LandscapeFeature` nodes.
-- `load-house-footprint` and `POST /api/neo4j/parcels/{parcel_id}/house-footprint` both attach a house footprint to an existing parcel.
-
-## Notes
-
-- Browser file loading analyzes the selected parcel without writing to Neo4j.
-- The current room and utility generation is intentionally simple and serves as a graph foundation for richer interior, build, and maintenance planning.
-- The project is still an early foundation that we can extend into richer house, circulation, utility, and maintenance workflows.
+The project is a residential property-planning and interior-layout foundation. It is not yet a construction-document, permitting, estimating, or maintenance-management platform.

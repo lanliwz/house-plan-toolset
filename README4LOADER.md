@@ -1,83 +1,55 @@
-# House Plan Toolset Loader
+# House Plan Toolset Loader and Persistence Guide
 
-This document describes how to load parcel GeoJSON into Neo4j using the Onto2AI parcel ontology package, its Pydantic parcel model, and the dataset-oriented Neo4j graph shape.
+This guide covers parcel loading, house-footprint enrichment, Neo4j graph materialization, and persistence of floor-plan and interior-design edits. For the application overview, see the [main README](README.md).
 
 ## Overview
 
-The loader in this project:
+The loader combines the Onto2AI parcel package with the local House, Landscape, and Interior Design ontologies. It:
 
-- uses `onto2ai-engineer` as a local dependency
-- imports parcel classes from `onto2ai_parcel.staging.pydantic_parcel_model`
-- builds:
-  - `Parcel`
-  - `PolygonGeometry`
-  - `BoundaryVertex`
-  - `GeoJSONFeature`
-  - `GeoJSONFeatureCollection`
-- applies the packaged parcel Neo4j constraints
-- applies the local house ontology constraints used by the web design layer
-- loads dataset nodes and materialized relationships into a Neo4j database
-- feeds the default parcel catalog used by the web UI
+- imports parcel models from `onto2ai_parcel.staging.pydantic_parcel_model`
+- accepts GeoJSON `FeatureCollection`, `Feature`, `Polygon`, and `MultiPolygon` inputs
+- creates graph-native parcel geometry, boundary vertices, addresses, house footprints, rooms, utilities, and landscape features
+- applies packaged parcel constraints and local house constraints
+- serializes editable room geometry and interior components into Neo4j
+- hydrates the web editor from the saved graph
+- defaults to Neo4j database `hp62n`
 
-Default target database:
+## Relevant Files
 
-- `hp62n`
+- [Loader implementation](src/house_landscape_planner/loaders/neo4j_parcel_loader.py)
+- [CLI entrypoint](src/house_landscape_planner/cli.py)
+- [Web API](src/house_landscape_planner/webapp/main.py)
+- [Web request/response models](src/house_landscape_planner/webapp/api.py)
+- [Web client](src/house_landscape_planner/webapp/static/js/app.js)
 
-## Files
+Place local GeoJSON inputs under `data/input/` or pass any readable filesystem path to the CLI.
 
-- Loader implementation:
-  [src/house_landscape_planner/loaders/neo4j_parcel_loader.py](/Users/weizhang/github/house-plan-toolset/src/house_landscape_planner/loaders/neo4j_parcel_loader.py)
-- CLI entrypoint:
-  [src/house_landscape_planner/cli.py](/Users/weizhang/github/house-plan-toolset/src/house_landscape_planner/cli.py)
-- Example parcel input:
-  [data/input/parcel_62n.geojson](/Users/weizhang/github/house-plan-toolset/data/input/parcel_62n.geojson)
-- Web UI API:
-  [src/house_landscape_planner/webapp/main.py](/Users/weizhang/github/house-plan-toolset/src/house_landscape_planner/webapp/main.py)
-- Web UI client:
-  [src/house_landscape_planner/webapp/static/js/app.js](/Users/weizhang/github/house-plan-toolset/src/house_landscape_planner/webapp/static/js/app.js)
-
-## Environment
-
-The loader uses the standard Onto2AI Neo4j connection variables:
+## Environment and Installation
 
 ```bash
 export NEO4J_MODEL_DB_URL="bolt://localhost:7687"
 export NEO4J_MODEL_DB_USERNAME="neo4j"
 export NEO4J_MODEL_DB_PASSWORD="your_password"
-```
 
-The target dataset database is passed by CLI argument. For this project we use:
-
-```bash
---database hp62n
-```
-
-## Install
-
-Sync the project environment with `uv`:
-
-```bash
 uv sync
 ```
 
-This project expects the local editable Onto2AI package source configured in `pyproject.toml`:
+The project uses the local editable Onto2AI dependency configured in `pyproject.toml`:
 
 ```toml
 [tool.uv.sources]
 onto2ai-engineer = { path = "../neo4j-onto2ai-toolset", editable = true }
 ```
 
-## Load Command
-
-Load the bundled parcel file into `hp62n`:
+## Load a Parcel
 
 ```bash
 uv run house-landscape load-neo4j \
-  --parcel data/input/parcel_62n.geojson \
+  --parcel /path/to/parcel.geojson \
   --database hp62n
 ```
 
-Example result:
+Typical result:
 
 ```json
 {
@@ -88,16 +60,34 @@ Example result:
 }
 ```
 
-Load a house footprint into an existing parcel:
+Useful options:
+
+- `--state NY` sets the fallback postal subdivision.
+- `--skip-create-db` requires the target database to exist already.
+- `--skip-constraints` skips parcel constraint application.
+
+## Attach a House Footprint
+
+Load local GeoJSON:
 
 ```bash
 uv run house-landscape load-house-footprint \
   --parcel-id 0200154000400039003 \
-  --house data/input/house_footprint.geojson \
+  --house /path/to/house-footprint.geojson \
   --database hp62n
 ```
 
-Load Suffolk contour-based elevation summary into an existing parcel:
+Or load the primary footprint intersecting the parcel from Suffolk GIS:
+
+```bash
+uv run house-landscape load-house-footprint-gis \
+  --parcel-id 0200154000400039003 \
+  --database hp62n
+```
+
+Attaching a footprint creates or refreshes the editable `House`, `BuildingFootprint`, `Room`, and `UtilityConnection` graph foundation. Floor levels are represented by persisted room level and layout properties and rendered as basement, first-floor, and second-floor views in the browser.
+
+## Load Parcel Elevation
 
 ```bash
 uv run house-landscape load-elevation \
@@ -105,31 +95,9 @@ uv run house-landscape load-elevation \
   --database hp62n
 ```
 
-## Web UI Integration
+This intersects the parcel with Suffolk 5-foot and 10-foot contours, stores the elevation summary on the parcel, and makes the contour data available to the UI and generated report.
 
-The web UI now reads parcel data from Neo4j by default.
-
-Default database:
-
-- `hp62n`
-
-Relevant API routes:
-
-- `GET /api/neo4j/parcels`
-- `GET /api/neo4j/parcels/{parcel_id}`
-- `POST /api/neo4j/parcels/{parcel_id}/features`
-- `DELETE /api/neo4j/parcels/{parcel_id}/features/{feature_id}`
-- `POST /api/neo4j/parcels/{parcel_id}/house-footprint`
-- `POST /api/neo4j/parcels/{parcel_id}/elevation`
-
-Typical flow:
-
-1. Load parcel GeoJSON into `hp62n`.
-2. Optionally load a house footprint into that parcel.
-3. Optionally load Suffolk contour elevation summary into that parcel.
-4. Start the web UI.
-5. Open the parcel selector in the intake bar.
-6. Load a parcel directly from Neo4j.
+## Web Editor Persistence
 
 Start the UI:
 
@@ -137,46 +105,49 @@ Start the UI:
 uv run house-landscape serve --host 127.0.0.1 --port 8181
 ```
 
-When you save edits from the web UI, the project now persists:
+When a parcel is loaded from Neo4j, the Save action sends one coordinated payload to:
 
-- legacy parcel JSON properties for compatibility
-- graph-native `House` and `BuildingFootprint` nodes for house footprint editing
-- graph-native `Room` and `UtilityConnection` nodes generated from the current house footprint
-- stored Suffolk contour elevation summary on the parcel node for UI and report use
-- graph-native `LandscapePlan` and `LandscapeFeature` nodes for design features
-
-## Optional Flags
-
-Skip database creation:
-
-```bash
-uv run house-landscape load-neo4j \
-  --parcel data/input/parcel_62n.geojson \
-  --database hp62n \
-  --skip-create-db
+```text
+POST /api/neo4j/parcels/{parcel_id}/features?database=hp62n
 ```
 
-Skip applying parcel constraints:
+The payload includes:
 
-```bash
-uv run house-landscape load-neo4j \
-  --parcel data/input/parcel_62n.geojson \
-  --database hp62n \
-  --skip-constraints
-```
+- landscape features
+- house-footprint points
+- rooms and floor placement
+- room name, type, size, and stair direction
+- wall, door, and window layouts
+- interior design overrides and component layouts
 
-Use a different default state code for generated postal address nodes:
+Room editor state is stored on each `Room` node:
 
-```bash
-uv run house-landscape load-neo4j \
-  --parcel data/input/parcel_62n.geojson \
-  --database hp62n \
-  --state NY
-```
+| Neo4j property | Content |
+| --- | --- |
+| `wallLayoutJson` | Wall edge, span, and thickness |
+| `doorLayoutJson` | Door host edge and span |
+| `windowLayoutJson` | Window host edge and span |
+| `interiorDesignLayoutJson` | Room scheme overrides and component type, position, size, and direction |
 
-## Graph Shape
+`serialize_room_summary`, `sync_rooms`, and `hydrate_room_summary` maintain the round trip between the web payload and these persisted fields.
 
-The loader writes dataset nodes aligned with the Onto2AI parcel package smoke-test pattern:
+Browser-only parcel uploads use `POST /api/analyze` and do not write to Neo4j.
+
+## Web API
+
+| Method | Route | Loader role |
+| --- | --- | --- |
+| `GET` | `/api/neo4j/parcels` | List available parcels |
+| `GET` | `/api/neo4j/parcels/{parcel_id}` | Hydrate parcel, house, rooms, and saved design |
+| `POST` | `/api/neo4j/parcels/{parcel_id}/features` | Persist the coordinated design payload |
+| `DELETE` | `/api/neo4j/parcels/{parcel_id}/features/{feature_id}` | Delete a landscape feature |
+| `POST` | `/api/neo4j/parcels/{parcel_id}/house-footprint` | Load uploaded house GeoJSON |
+| `POST` | `/api/neo4j/parcels/{parcel_id}/house-footprint/gis` | Load the Suffolk GIS footprint |
+| `POST` | `/api/neo4j/parcels/{parcel_id}/elevation` | Refresh Suffolk contour data |
+
+## Core Graph Shape
+
+Parcel dataset nodes include:
 
 - `(:GeoJSONFeatureCollection:Resource)`
 - `(:GeoJSONFeature:Resource)`
@@ -186,39 +157,55 @@ The loader writes dataset nodes aligned with the Onto2AI parcel package smoke-te
 - `(:USPostalAddress:Address:Resource)` when address fields are present
 - `(:Country:Resource)` and `(:CountrySubdivision:Resource)` for address references
 
-Materialized relationships:
+House and design nodes include:
+
+- `(:House)`
+- `(:BuildingFootprint)`
+- `(:Room)`
+- `(:UtilityConnection)`
+- `(:LandscapePlan)` and `(:LandscapeFeature)`
+
+Key materialized relationships include:
 
 - `(:GeoJSONFeatureCollection)-[:hasFeature]->(:GeoJSONFeature)`
 - `(:GeoJSONFeature)-[:representsParcel]->(:Parcel)`
 - `(:Parcel)-[:hasParcelGeometry]->(:PolygonGeometry)`
 - `(:PolygonGeometry)-[:hasBoundaryVertex]->(:BoundaryVertex)`
-- `(:Parcel)-[:hasParcelAddress]->(:USPostalAddress)` when address exists
+- `(:Parcel)-[:hasParcelAddress]->(:USPostalAddress)`
 - `(:USPostalAddress)-[:hasCountry]->(:Country)`
 - `(:USPostalAddress)-[:hasSubdivision]->(:CountrySubdivision)`
+- `(:Parcel)-[:HAS_HOUSE]->(:House)`
+- `(:House)-[:HAS_BUILDING_FOOTPRINT]->(:BuildingFootprint)`
+- `(:House)-[:HAS_ROOM]->(:Room)`
+- `(:House)-[:HAS_UTILITY_CONNECTION]->(:UtilityConnection)`
+- `(:Parcel)-[:HAS_LANDSCAPE_PLAN]->(:LandscapePlan)`
+- `(:LandscapePlan)-[:hasLandscapeFeature]->(:LandscapeFeature)`
+
+The loader also stores ontology URI and label metadata on materialized graph elements.
 
 ## Source Property Handling
 
-The loader preserves scalar GeoJSON feature properties on the `Parcel` node in Neo4j. That includes fields like:
+Scalar GeoJSON properties such as `OBJECTID`, `PARCELID`, `FULLADDRESS`, `ACREAGE`, `LANDUSE`, and `STATUS` are preserved on the `Parcel` node. Nested and other non-scalar values are not copied as direct Neo4j properties.
 
-- `OBJECTID`
-- `PARCELID`
-- `FULLADDRESS`
-- `ACREAGE`
-- `LANDUSE`
-- `STATUS`
+Address creation uses the Onto2AI model fields `hasCountry` and `hasSubdivision`, then materializes the referenced `Country` and `CountrySubdivision` resources.
 
-Nested or non-scalar values are not copied as direct node properties.
+## Ontology and Constraint Alignment
+
+The loader applies or depends on:
+
+- packaged Onto2AI parcel constraints
+- [House.rdf](resource/ontology/www_onto2ai-toolset_com/ontology/house/House.rdf) and [House.cypher](resource/ontology/www_onto2ai-toolset_com/ontology/house/House.cypher)
+- [InteriorDesign.rdf](resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.rdf) and [InteriorDesign.cypher](resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.cypher)
+- [Landscape.rdf](resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.rdf) and [Landscape.cypher](resource/ontology/www_onto2ai-toolset_com/ontology/landscape/Landscape.cypher)
+
+RDF remains the source of truth. Validate RDF syntax after ontology changes and keep the Cypher companion aligned with the RDF URI base, fragments, and semantics.
 
 ## Validation
 
-Run the project tests in the uv-managed environment:
-
 ```bash
-uv run python -m pytest
+uv run pytest -q
+xmllint --noout resource/ontology/www_onto2ai-toolset_com/ontology/house/House.rdf
+xmllint --noout resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.rdf
 ```
 
-Current loader coverage includes:
-
-- parcel-model construction from GeoJSON
-- address-node creation when parcel address fields are present
-- web app and analysis regression coverage
+Loader coverage includes parcel-model construction, postal-address materialization, house-footprint loading, room-layout round trips, interior-design persistence, API serialization, and web UI regressions.

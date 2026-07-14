@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">House Plan Toolset</title>
+  <desc id="desc">A three-panel property navigator with a parcel catalog, editable floor plan, and room inspector.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1b27"/>
+      <stop offset="1" stop-color="#163249"/>
+    </linearGradient>
+    <linearGradient id="plan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dce8ef"/>
+      <stop offset="1" stop-color="#c7d9e4"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#06101a" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="360" rx="24" fill="url(#background)"/>
+  <circle cx="1090" cy="54" r="110" fill="#4aa6c8" opacity="0.08"/>
+  <circle cx="1010" cy="340" r="170" fill="#f0b95b" opacity="0.06"/>
+
+  <g transform="translate(54 58)">
+    <rect width="70" height="70" rx="18" fill="#f0b95b"/>
+    <path d="M17 39 35 22l18 17v18H41V43H29v14H17Z" fill="#102434"/>
+    <text x="94" y="32" fill="#f7fafc" font-family="Inter,Arial,sans-serif" font-size="34" font-weight="750">House Plan Toolset</text>
+    <text x="94" y="62" fill="#a9c4d5" font-family="Inter,Arial,sans-serif" font-size="17">Parcel intelligence • floor planning • interior design</text>
+  </g>
+
+  <g transform="translate(54 165)" font-family="Inter,Arial,sans-serif">
+    <rect width="312" height="136" rx="16" fill="#112839" stroke="#31506a" filter="url(#shadow)"/>
+    <text x="20" y="30" fill="#7fc4df" font-size="12" font-weight="700" letter-spacing="1.4">CATALOG</text>
+    <g fill="#dbe7ee" font-size="14">
+      <rect x="18" y="45" width="276" height="27" rx="7" fill="#1d3b50"/>
+      <text x="32" y="64">▾ House and footprint</text>
+      <text x="32" y="92">▾ Rooms and interior designs</text>
+      <text x="32" y="118">▾ Landscape and utilities</text>
+    </g>
+  </g>
+
+  <g transform="translate(392 125)" filter="url(#shadow)">
+    <rect width="484" height="198" rx="18" fill="#102536" stroke="#36546b"/>
+    <text x="22" y="30" fill="#7fc4df" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" letter-spacing="1.4">EDITABLE FLOOR PLAN</text>
+    <g transform="translate(30 48)">
+      <rect width="424" height="126" rx="8" fill="url(#plan)"/>
+      <path d="M0 0H424V126H0Z M146 0V72H0 M146 72H275V126 M275 0V126" fill="none" stroke="#52758d" stroke-width="8" stroke-linejoin="round"/>
+      <rect x="18" y="16" width="104" height="40" rx="7" fill="#8aa6b6"/>
+      <rect x="166" y="16" width="82" height="40" rx="7" fill="#70a8b7"/>
+      <rect x="294" y="16" width="108" height="74" rx="12" fill="#88b3bd"/>
+      <rect x="170" y="88" width="82" height="24" rx="6" fill="#6f899a"/>
+      <path d="M12 118H136" stroke="#e4ad4f" stroke-width="2"/>
+      <path d="m12 113 5 10m119-10-5 10" stroke="#e4ad4f" stroke-width="2"/>
+      <text x="74" y="111" text-anchor="middle" fill="#314d61" font-family="Inter,Arial,sans-serif" font-size="10" font-weight="700">12'-0" • t 4.5"</text>
+      <path d="M392 105h18m-9-9v18" stroke="#f0b95b" stroke-width="2" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <g transform="translate(902 165)" font-family="Inter,Arial,sans-serif">
+    <rect width="244" height="136" rx="16" fill="#112839" stroke="#31506a" filter="url(#shadow)"/>
+    <text x="20" y="30" fill="#7fc4df" font-size="12" font-weight="700" letter-spacing="1.4">INSPECTOR</text>
+    <text x="20" y="57" fill="#f7fafc" font-size="16" font-weight="700">Bathtub</text>
+    <g fill="#9fb9c9" font-size="12">
+      <text x="20" y="82">Size</text><text x="112" y="82" fill="#e7eef2">60 × 36 in</text>
+      <text x="20" y="103">Direction</text><text x="112" y="103" fill="#e7eef2">Right (90°)</text>
+      <text x="20" y="124">Position</text><text x="112" y="124" fill="#e7eef2">Editable</text>
+    </g>
+  </g>
+</svg>
