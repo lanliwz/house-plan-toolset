@@ -117,6 +117,7 @@ The payload includes:
 - house-footprint points
 - rooms and floor placement
 - room name, type, size, and stair direction
+- optional normalized polygon room vertices
 - wall, door, and window layouts
 - interior design overrides and component layouts
 
@@ -124,6 +125,7 @@ Room editor state is stored on each `Room` node:
 
 | Neo4j property | Content |
 | --- | --- |
+| `floorPolygonJson` | Optional ordered normalized vertex pairs for a polygonal room footprint |
 | `wallLayoutJson` | Wall edge, span, and thickness |
 | `doorLayoutJson` | Door host edge and span |
 | `windowLayoutJson` | Window host edge and span |

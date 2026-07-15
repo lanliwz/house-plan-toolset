@@ -1159,9 +1159,52 @@ input {
     cursor: pointer;
 }
 
+.floor-room-polygon {
+    stroke-width: 1.8;
+}
+
+.floor-room-polygon-outline {
+    pointer-events: none;
+}
+
+.floor-room-polygon-handle {
+    fill: #93c9ff;
+    stroke: #f3e3b8;
+    stroke-width: 1.6;
+    cursor: move;
+}
+
+.floor-room-polygon-handle.selected {
+    fill: var(--accent);
+    stroke-width: 2.2;
+}
+
 .room-wall-segment {
     fill: rgba(147, 201, 255, 0.92);
     stroke: none;
+}
+
+.room-wall-segment-line,
+.room-door-line,
+.room-window-line {
+    fill: none;
+    stroke-linecap: butt;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+.room-wall-segment-line {
+    stroke: rgba(147, 201, 255, 0.92);
+}
+
+.room-door-line {
+    stroke: rgba(242, 200, 121, 0.98);
+    stroke-dasharray: 7 4;
+}
+
+.room-window-line {
+    stroke: rgba(159, 226, 216, 0.98);
+    stroke-dasharray: 4 3;
 }
 
 .room-wall-length {
@@ -1694,6 +1737,7 @@ input {
 .interior-boundary-segment {
     cursor: pointer;
     vector-effect: non-scaling-stroke;
+    stroke-linecap: square;
 }
 
 .interior-wall {
@@ -1724,6 +1768,17 @@ input {
 
 .interior-wall.selected {
     stroke-width: 1;
+}
+
+.interior-wall-dimension {
+    fill: var(--text-primary);
+    font-size: 9px;
+    font-weight: 800;
+    paint-order: stroke;
+    stroke: var(--panel);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+    pointer-events: none;
 }
 
 .interior-light {

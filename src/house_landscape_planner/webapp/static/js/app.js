@@ -14,6 +14,7 @@ const state = {
     selectedInteriorFixtureId: null,
     selectedInteriorSegmentKind: null,
     selectedInteriorSegmentIndex: null,
+    selectedRoomVertexIndex: null,
     persistenceMode: "session",
     currentNeo4jParcelId: null,
     currentNeo4jDatabase: null,
@@ -204,8 +205,8 @@ function setupActions() {
     document.getElementById("add-room").addEventListener("click", addFloorRoom);
     document.getElementById("remove-room").addEventListener("click", removeSelectedRoom);
     document.getElementById("rotate-stair").addEventListener("click", rotateSelectedStair);
-    document.getElementById("add-house-vertex").addEventListener("click", addHousePlanVertex);
-    document.getElementById("remove-house-vertex").addEventListener("click", removeHousePlanVertex);
+    document.getElementById("add-house-vertex").addEventListener("click", addSelectedPlanVertex);
+    document.getElementById("remove-house-vertex").addEventListener("click", removeSelectedPlanVertex);
     document.getElementById("save-features").addEventListener("click", saveFeatures);
     document.getElementById("remove-feature").addEventListener("click", removeSelectedFeature);
 }
@@ -409,6 +410,9 @@ function setupFloorPlanEditing() {
             state.activeView = levelKey;
 
             const action = target.dataset.floorAction;
+            state.selectedRoomVertexIndex = action === "move-room-vertex"
+                ? Number(target.dataset.index)
+                : null;
             if (!action) {
                 renderSelection();
                 return;
@@ -441,6 +445,8 @@ function setupFloorPlanEditing() {
                     width: Number(room.properties.floor_width_ratio || 0.3),
                     height: Number(room.properties.floor_height_ratio || 0.2),
                 },
+                startPolygon: getRoomPolygonRatios(room).map((point) => [...point]),
+                pointIndex: Number(target.dataset.index),
                 shellShape,
             };
 
@@ -668,6 +674,7 @@ function applyAssessment(payload) {
     state.reportMarkdown = payload.report_markdown;
     state.detailZoom = 1;
     state.floorPlanInteraction = null;
+    state.selectedRoomVertexIndex = null;
     document.getElementById("download-report").disabled = false;
 
     renderCatalog();
@@ -1010,6 +1017,9 @@ function renderCatalogItem(item) {
 }
 
 function setSelection(kind, id) {
+    if (kind !== "room" || state.selectedKind !== "room" || state.selectedId !== id) {
+        state.selectedRoomVertexIndex = null;
+    }
     if (kind === "interior-design" && (state.selectedKind !== kind || state.selectedId !== id)) {
         state.selectedInteriorFixtureId = null;
         state.selectedInteriorSegmentKind = null;
@@ -1320,6 +1330,7 @@ function buildBathroomFixtureDirectionField(value) {
 
 function buildInteriorStructureInspector(item) {
     const sourceRoom = getInteriorSourceRoom(item);
+    const polygonPointCount = sourceRoom ? getRoomPolygonRatios(sourceRoom).length : 0;
     const kind = state.selectedInteriorSegmentKind;
     const index = Number(state.selectedInteriorSegmentIndex);
     const list = sourceRoom && ["walls", "doors", "windows"].includes(kind)
@@ -1348,9 +1359,13 @@ function buildInteriorStructureInspector(item) {
                 <label>
                     <span>Wall edge</span>
                     <select data-interior-segment-field="edge">
-                        ${["top", "right", "bottom", "left"].map((edge) => `
-                            <option value="${edge}" ${segment.edge === edge ? "selected" : ""}>${titleCase(edge)}</option>
-                        `).join("")}
+                        ${polygonPointCount >= 3
+                            ? Array.from({ length: polygonPointCount }, (_, edgeIndex) => `
+                                <option value="polygon:${edgeIndex}" ${getPolygonSegmentEdgeIndex(segment, index, polygonPointCount) === edgeIndex ? "selected" : ""}>Edge ${edgeIndex + 1}</option>
+                            `).join("")
+                            : ["top", "right", "bottom", "left"].map((edge) => `
+                                <option value="${edge}" ${segment.edge === edge ? "selected" : ""}>${titleCase(edge)}</option>
+                            `).join("")}
                     </select>
                 </label>
                 ${buildInteriorSegmentNumberField("Start", "start_ratio", segment.start_ratio)}
@@ -1481,7 +1496,7 @@ function normalizeBathroomFixtureLayout(value, item) {
             xInches = Math.min(6, Math.max(0, roomDimensions.width - widthInches));
             yInches = Math.max(0, roomDimensions.height - depthInches);
         }
-        return {
+        const normalized = {
             id,
             type,
             label: String(fixture.label || config.label),
@@ -1491,6 +1506,7 @@ function normalizeBathroomFixtureLayout(value, item) {
             depth_inches: depthInches,
             direction_degrees: normalizeFixtureDirection(fixture.direction_degrees),
         };
+        return fitFixtureToInteriorRoom(normalized, item);
     });
 }
 
@@ -1533,6 +1549,147 @@ function getInteriorRoomDimensionsInches(item) {
     };
 }
 
+function getInteriorRoomPolygonRatios(item) {
+    const sourceRoom = getInteriorSourceRoom(item);
+    const polygon = getRoomPolygonRatios(sourceRoom);
+    if (polygon.length < 3) {
+        return [];
+    }
+    const xs = polygon.map((point) => point[0]);
+    const ys = polygon.map((point) => point[1]);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    const spanX = Math.max(Math.max(...xs) - minX, 0.0001);
+    const spanY = Math.max(Math.max(...ys) - minY, 0.0001);
+    return polygon.map((point) => [
+        clamp((point[0] - minX) / spanX, 0, 1),
+        clamp((point[1] - minY) / spanY, 0, 1),
+    ]);
+}
+
+function getInteriorRoomPolygonInches(item) {
+    const dimensions = getInteriorRoomDimensionsInches(item);
+    return getInteriorRoomPolygonRatios(item).map((point) => [
+        point[0] * dimensions.width,
+        point[1] * dimensions.height,
+    ]);
+}
+
+function isPointOnPolygonEdge(point, start, end, tolerance = 0.01) {
+    const cross = ((point[1] - start[1]) * (end[0] - start[0]))
+        - ((point[0] - start[0]) * (end[1] - start[1]));
+    if (Math.abs(cross) > tolerance) {
+        return false;
+    }
+    const dot = ((point[0] - start[0]) * (end[0] - start[0]))
+        + ((point[1] - start[1]) * (end[1] - start[1]));
+    const squaredLength = ((end[0] - start[0]) ** 2) + ((end[1] - start[1]) ** 2);
+    return dot >= -tolerance && dot <= squaredLength + tolerance;
+}
+
+function isPointInsidePolygon(point, polygon) {
+    let inside = false;
+    for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+        const start = polygon[previous];
+        const end = polygon[index];
+        if (isPointOnPolygonEdge(point, start, end)) {
+            return true;
+        }
+        const intersects = ((end[1] > point[1]) !== (start[1] > point[1]))
+            && (point[0] < ((start[0] - end[0]) * (point[1] - end[1]) / ((start[1] - end[1]) || 1e-9)) + end[0]);
+        if (intersects) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+function isFixtureInsideInteriorRoom(fixture, item) {
+    const polygon = getInteriorRoomPolygonInches(item);
+    if (polygon.length < 3) {
+        return true;
+    }
+    const left = Number(fixture.x_inches || 0);
+    const top = Number(fixture.y_inches || 0);
+    const right = left + Number(fixture.width_inches || 0);
+    const bottom = top + Number(fixture.depth_inches || 0);
+    return [[left, top], [right, top], [right, bottom], [left, bottom]]
+        .every((point) => isPointInsidePolygon(point, polygon));
+}
+
+function fitFixtureToInteriorRoom(fixture, item, fallback = null) {
+    const polygon = getInteriorRoomPolygonRatios(item);
+    if (polygon.length < 3) {
+        return fixture;
+    }
+    const dimensions = getInteriorRoomDimensionsInches(item);
+    const maxX = Math.max(0, dimensions.width - fixture.width_inches);
+    const maxY = Math.max(0, dimensions.height - fixture.depth_inches);
+    const requested = {
+        ...fixture,
+        x_inches: clamp(Number(fixture.x_inches || 0), 0, maxX),
+        y_inches: clamp(Number(fixture.y_inches || 0), 0, maxY),
+    };
+    if (isFixtureInsideInteriorRoom(requested, item)) {
+        return requested;
+    }
+
+    const fallbackFixture = fallback ? {
+        ...requested,
+        x_inches: clamp(Number(fallback.x_inches || 0), 0, maxX),
+        y_inches: clamp(Number(fallback.y_inches || 0), 0, maxY),
+    } : null;
+    const directCandidates = fallbackFixture ? [
+        { ...requested, y_inches: fallbackFixture.y_inches },
+        { ...requested, x_inches: fallbackFixture.x_inches },
+        fallbackFixture,
+    ] : [];
+    const direct = directCandidates.find((candidate) => isFixtureInsideInteriorRoom(candidate, item));
+    if (direct) {
+        return direct;
+    }
+
+    const step = Math.max(3, Math.min(dimensions.width, dimensions.height) / 40);
+    let best = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    const xPositions = Array.from({ length: Math.floor(maxX / step) + 1 }, (_, index) => index * step);
+    const yPositions = Array.from({ length: Math.floor(maxY / step) + 1 }, (_, index) => index * step);
+    if (!xPositions.includes(maxX)) xPositions.push(maxX);
+    if (!yPositions.includes(maxY)) yPositions.push(maxY);
+    yPositions.forEach((candidateY) => xPositions.forEach((candidateX) => {
+        const candidate = { ...requested, x_inches: candidateX, y_inches: candidateY };
+        if (!isFixtureInsideInteriorRoom(candidate, item)) {
+            return;
+        }
+        const distance = ((candidateX - requested.x_inches) ** 2) + ((candidateY - requested.y_inches) ** 2);
+        if (distance < bestDistance) {
+            best = candidate;
+            bestDistance = distance;
+        }
+    }));
+    return best || requested;
+}
+
+function getInteriorRoomScreenPolygon(item, x, y, width, height) {
+    const polygon = getInteriorRoomPolygonRatios(item);
+    if (polygon.length < 3) {
+        return [
+            { x, y },
+            { x: x + width, y },
+            { x: x + width, y: y + height },
+            { x, y: y + height },
+        ];
+    }
+    return polygon.map((point) => ({
+        x: x + (point[0] * width),
+        y: y + (point[1] * height),
+    }));
+}
+
+function formatSvgPolygonPoints(points, offsetX = 0, offsetY = 0) {
+    return points.map((point) => `${(point.x + offsetX).toFixed(1)},${(point.y + offsetY).toFixed(1)}`).join(" ");
+}
+
 function buildInteriorRoomFloorSvg(item) {
     const colors = item.properties.palette_colors || [];
     const floorColor = colors[0]?.hex || "#ECE7DD";
@@ -1547,8 +1704,14 @@ function buildInteriorRoomFloorSvg(item) {
     const height = roomDimensions.height * ratio;
     const x = (canvasWidth - width) / 2;
     const y = (canvasHeight - height) / 2;
+    const roomPolygon = getInteriorRoomScreenPolygon(item, x, y, width, height);
+    const polygonPoints = formatSvgPolygonPoints(roomPolygon);
+    const shadowPoints = formatSvgPolygonPoints(roomPolygon, 8, 8);
+    const svgId = String(item.id || "room").replace(/[^A-Za-z0-9_-]/g, "-");
+    const clipId = `interior-room-clip-${svgId}`;
+    const gridId = `interior-floor-grid-${svgId}`;
     const furniture = buildInteriorFurnitureSvg(item, x, y, width, height, accentColor, darkColor);
-    const structure = buildInteriorBoundarySvg(item, x, y, width, height);
+    const structure = buildInteriorBoundarySvg(item, x, y, width, height, roomPolygon);
     const selectedLabel = `${item.properties.room_label} floor design`;
     const zoomPercent = Math.max(DETAIL_ZOOM_MIN, state.detailZoom || 1) * 100;
 
@@ -1556,26 +1719,33 @@ function buildInteriorRoomFloorSvg(item) {
         <svg class="interior-floor-svg" viewBox="0 0 ${canvasWidth} ${canvasHeight}" role="img"
             aria-label="${escapeHtml(selectedLabel)}" style="width:${zoomPercent.toFixed(1)}%">
             <defs>
-                <pattern id="interior-floor-grid-${escapeHtml(item.id)}" width="24" height="24" patternUnits="userSpaceOnUse">
+                <pattern id="${gridId}" width="24" height="24" patternUnits="userSpaceOnUse">
                     <path d="M 24 0 L 0 0 0 24" class="interior-floor-grid-line"></path>
                 </pattern>
+                <clipPath id="${clipId}">
+                    <polygon points="${polygonPoints}"></polygon>
+                </clipPath>
             </defs>
-            <rect class="interior-floor-shadow" x="${(x + 8).toFixed(1)}" y="${(y + 8).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="8"></rect>
-            <rect class="interior-floor-fill" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="8" style="fill:${escapeHtml(floorColor)}"></rect>
-            <rect class="interior-floor-grid" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="8" fill="url(#interior-floor-grid-${escapeHtml(item.id)})"></rect>
-            <rect class="interior-floor-outline" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="8"></rect>
+            <polygon class="interior-floor-shadow" points="${shadowPoints}"></polygon>
+            <polygon class="interior-floor-fill" points="${polygonPoints}" style="fill:${escapeHtml(floorColor)}"></polygon>
+            <polygon class="interior-floor-grid" points="${polygonPoints}" fill="url(#${gridId})"></polygon>
+            <polygon class="interior-floor-outline" points="${polygonPoints}"></polygon>
             ${structure}
-            ${furniture}
+            <g clip-path="url(#${clipId})">${furniture}</g>
             <text class="interior-floor-title" x="${x.toFixed(1)}" y="${Math.max(22, y - 12).toFixed(1)}">${escapeHtml(item.properties.room_label)}</text>
             <text class="interior-floor-note" x="${x.toFixed(1)}" y="${(y + height + 22).toFixed(1)}">${escapeHtml(item.properties.primary_finish)}</text>
         </svg>
     `;
 }
 
-function buildInteriorBoundarySvg(item, x, y, width, height) {
+function buildInteriorBoundarySvg(item, x, y, width, height, roomPolygon = []) {
     const sourceRoom = getInteriorSourceRoom(item);
     if (!sourceRoom) {
         return "";
+    }
+    const polygon = getRoomPolygonRatios(sourceRoom);
+    if (polygon.length >= 3 && roomPolygon.length >= 3) {
+        return buildInteriorPolygonBoundarySvg(item, sourceRoom, roomPolygon);
     }
     const groups = [
         ["walls", normalizeRoomWalls(sourceRoom.properties.walls)],
@@ -1598,6 +1768,50 @@ function buildInteriorBoundarySvg(item, x, y, width, height) {
                 role="button" tabindex="0" aria-label="${titleCase(typeClass)} ${index + 1}"></rect>
         `;
     }).join("")).join("");
+}
+
+function buildInteriorPolygonBoundarySvg(item, sourceRoom, roomPolygon) {
+    const pointCount = roomPolygon.length;
+    const pixelsPerInch = getInteriorPixelsPerInch(item);
+    const groups = [
+        ["walls", normalizeRoomWalls(sourceRoom.properties.walls)],
+        ["doors", normalizeRoomOpenings(sourceRoom.properties.doors)],
+        ["windows", normalizeRoomOpenings(sourceRoom.properties.windows)],
+    ];
+    return groups.map(([kind, segments]) => segments.map((segment, index) => {
+        const edgeIndex = getPolygonSegmentEdgeIndex(segment, index, pointCount);
+        const edgeStart = roomPolygon[edgeIndex];
+        const edgeEnd = roomPolygon[(edgeIndex + 1) % pointCount];
+        const start = interpolateScreenPoint(edgeStart, edgeEnd, clamp(Number(segment.start_ratio ?? 0), 0, 1));
+        const end = interpolateScreenPoint(edgeStart, edgeEnd, clamp(Number(segment.end_ratio ?? 1), 0, 1));
+        const hostWall = kind === "walls" ? segment : findPolygonHostWall(sourceRoom, edgeIndex);
+        const strokeWidth = Math.max(kind === "walls" ? 2 : 3, getWallThicknessInches(hostWall) * pixelsPerInch);
+        const selected = state.selectedInteriorSegmentKind === kind && state.selectedInteriorSegmentIndex === index;
+        const typeClass = kind === "walls" ? "wall" : kind === "doors" ? "door" : "window";
+        const dimension = selected && kind === "walls"
+            ? buildInteriorPolygonWallDimension(sourceRoom, segment, edgeStart, edgeEnd, start, end, strokeWidth)
+            : "";
+        return `
+            <line class="interior-boundary-segment interior-${typeClass} ${selected ? "selected" : ""}"
+                x1="${start.x.toFixed(1)}" y1="${start.y.toFixed(1)}" x2="${end.x.toFixed(1)}" y2="${end.y.toFixed(1)}"
+                style="stroke-width:${strokeWidth.toFixed(2)}px"
+                data-interior-segment-kind="${kind}" data-interior-segment-index="${index}"
+                role="button" tabindex="0" aria-label="${titleCase(typeClass)} ${index + 1}"></line>
+            ${dimension}
+        `;
+    }).join("")).join("");
+}
+
+function buildInteriorPolygonWallDimension(sourceRoom, segment, edgeStart, edgeEnd, start, end, strokeWidth) {
+    const dx = edgeEnd.x - edgeStart.x;
+    const dy = edgeEnd.y - edgeStart.y;
+    const length = Math.max(Math.hypot(dx, dy), 1);
+    const normal = { x: -dy / length, y: dx / length };
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const offset = Math.max(14, (strokeWidth / 2) + 9);
+    const label = `${formatRoomWallLength(sourceRoom, segment)} · t ${formatNumber(getWallThicknessInches(segment))}\"`;
+    return `<text class="interior-wall-dimension" text-anchor="middle"
+        x="${(midpoint.x + (normal.x * offset)).toFixed(1)}" y="${(midpoint.y + (normal.y * offset)).toFixed(1)}">${escapeHtml(label)}</text>`;
 }
 
 function buildInteriorFurnitureSvg(item, x, y, width, height, accentColor, darkColor) {
@@ -1954,26 +2168,203 @@ function buildFloorRoomMarkup(rooms, shellBox) {
     }
 
     return rooms.map((room, index) => {
-        const x = shellBox.x + (shellBox.width * Number(room.properties.floor_x_ratio || 0.1));
-        const y = shellBox.y + (shellBox.height * Number(room.properties.floor_y_ratio || 0.1));
-        const roomWidth = shellBox.width * Number(room.properties.floor_width_ratio || 0.3);
-        const roomHeight = shellBox.height * Number(room.properties.floor_height_ratio || 0.2);
+        const geometry = getFloorRoomGeometry(room, shellBox);
+        const { x, y, width: roomWidth, height: roomHeight } = geometry;
         const selected = state.selectedKind === "room" && state.selectedId === room.id ? "selected" : "";
         const label = room.label.length > 18 ? `${room.label.slice(0, 18)}...` : room.label;
-        const controls = selected ? buildFloorRoomControls(room.id, x, y, roomWidth, roomHeight) : "";
-        const openingMarkup = buildRoomOpeningMarkup(room, x, y, roomWidth, roomHeight);
+        const controls = selected
+            ? (geometry.isPolygon
+                ? buildFloorRoomPolygonControls(room.id, geometry.points)
+                : buildFloorRoomControls(room.id, x, y, roomWidth, roomHeight))
+            : "";
+        const openingMarkup = geometry.isPolygon
+            ? buildPolygonRoomBoundaryMarkup(room, geometry.points, shellBox)
+            : buildRoomOpeningMarkup(room, x, y, roomWidth, roomHeight);
         const stairMarkup = buildStairMarkup(room, x, y, roomWidth, roomHeight);
         const stairClass = String(room.properties.room_type || "").toLowerCase() === "stair" ? "stair-room" : "";
+        const roomShape = geometry.isPolygon
+            ? `<polygon class="floor-room floor-room-polygon ${stairClass} ${selected}" data-kind="room" data-id="${escapeHtml(room.id)}" data-floor-action="move-room" points="${geometry.pointText}"></polygon>`
+            : `<rect class="floor-room ${stairClass} ${selected}" data-kind="room" data-id="${escapeHtml(room.id)}" data-floor-action="move-room"
+                x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${roomWidth.toFixed(1)}" height="${roomHeight.toFixed(1)}"></rect>`;
         return `
-            <rect class="floor-room ${stairClass} ${selected}" data-kind="room" data-id="${escapeHtml(room.id)}" data-floor-action="move-room"
-                x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${roomWidth.toFixed(1)}" height="${roomHeight.toFixed(1)}"></rect>
+            ${roomShape}
             ${openingMarkup}
             ${stairMarkup}
             ${controls}
             <text class="floor-room-label zoom-stable-label" text-anchor="middle"
-                transform="${buildStableLabelTransform(x + (roomWidth / 2), y + (roomHeight / 2))}">${escapeHtml(label)}</text>
+                transform="${buildStableLabelTransform(geometry.center.x, geometry.center.y)}">${escapeHtml(label)}</text>
         `;
     }).join("");
+}
+
+function getFloorRoomGeometry(room, shellBox) {
+    const ratios = getRoomPolygonRatios(room);
+    if (ratios.length >= 3) {
+        const points = ratios.map(([xRatio, yRatio]) => ({
+            x: shellBox.x + (shellBox.width * xRatio),
+            y: shellBox.y + (shellBox.height * yRatio),
+        }));
+        const xs = points.map((point) => point.x);
+        const ys = points.map((point) => point.y);
+        const x = Math.min(...xs);
+        const y = Math.min(...ys);
+        const width = Math.max(Math.max(...xs) - x, 1);
+        const height = Math.max(Math.max(...ys) - y, 1);
+        return {
+            isPolygon: true,
+            points,
+            pointText: points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" "),
+            x,
+            y,
+            width,
+            height,
+            center: getScreenPolygonCentroid(points),
+        };
+    }
+
+    const x = shellBox.x + (shellBox.width * Number(room.properties.floor_x_ratio || 0.1));
+    const y = shellBox.y + (shellBox.height * Number(room.properties.floor_y_ratio || 0.1));
+    const width = shellBox.width * Number(room.properties.floor_width_ratio || 0.3);
+    const height = shellBox.height * Number(room.properties.floor_height_ratio || 0.2);
+    return {
+        isPolygon: false,
+        points: [],
+        pointText: "",
+        x,
+        y,
+        width,
+        height,
+        center: { x: x + (width / 2), y: y + (height / 2) },
+    };
+}
+
+function getScreenPolygonCentroid(points) {
+    if (!points.length) {
+        return { x: 0, y: 0 };
+    }
+    const total = points.reduce((memo, point) => ({ x: memo.x + point.x, y: memo.y + point.y }), { x: 0, y: 0 });
+    return { x: total.x / points.length, y: total.y / points.length };
+}
+
+function buildFloorRoomPolygonControls(roomId, points) {
+    const pointText = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+    return `
+        <polygon class="floor-room-outline floor-room-polygon-outline" points="${pointText}"></polygon>
+        ${points.map((point, index) => `
+            <circle class="floor-room-polygon-handle ${state.selectedRoomVertexIndex === index ? "selected" : ""}"
+                data-kind="room" data-id="${escapeHtml(roomId)}" data-floor-action="move-room-vertex" data-index="${index}"
+                cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${buildStableCircleRadius(6)}"></circle>
+        `).join("")}
+    `;
+}
+
+function buildPolygonRoomBoundaryMarkup(room, points, shellBox) {
+    const pointCount = points.length;
+    const walls = normalizeRoomWalls(room.properties.walls).map((wall, index) => ({
+        ...wall,
+        edge_index: getPolygonSegmentEdgeIndex(wall, index, pointCount),
+    }));
+    const coveredEdges = new Set(walls.map((wall) => wall.edge_index));
+    for (let index = 0; index < pointCount; index += 1) {
+        if (!coveredEdges.has(index)) {
+            walls.push({ edge_index: index, start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES });
+        }
+    }
+
+    const wallMarkup = walls.map((wall) => buildPolygonRoomSegmentLine(room, wall, points, shellBox, "room-wall-segment-line")).join("");
+    const doorMarkup = normalizeRoomOpenings(room.properties.doors)
+        .map((door, index) => buildPolygonRoomSegmentLine(room, {
+            ...door,
+            edge_index: getPolygonSegmentEdgeIndex(door, index, pointCount),
+        }, points, shellBox, "room-door-line"))
+        .join("");
+    const windowMarkup = normalizeRoomOpenings(room.properties.windows)
+        .map((windowItem, index) => buildPolygonRoomSegmentLine(room, {
+            ...windowItem,
+            edge_index: getPolygonSegmentEdgeIndex(windowItem, index, pointCount),
+        }, points, shellBox, "room-window-line"))
+        .join("");
+    return `${wallMarkup}${doorMarkup}${windowMarkup}`;
+}
+
+function buildPolygonRoomSegmentLine(room, segment, points, shellBox, className) {
+    const edgeIndex = clamp(Number(segment.edge_index || 0), 0, points.length - 1);
+    const edgeStart = points[edgeIndex];
+    const edgeEnd = points[(edgeIndex + 1) % points.length];
+    if (!edgeStart || !edgeEnd) {
+        return "";
+    }
+    const startRatio = clamp(Number(segment.start_ratio ?? 0), 0, 1);
+    const endRatio = clamp(Number(segment.end_ratio ?? 1), 0, 1);
+    const start = interpolateScreenPoint(edgeStart, edgeEnd, Math.min(startRatio, endRatio));
+    const end = interpolateScreenPoint(edgeStart, edgeEnd, Math.max(startRatio, endRatio));
+    const hostWall = findPolygonHostWall(room, edgeIndex);
+    const thicknessInches = getWallThicknessInches(hostWall);
+    const strokeWidth = Math.max(0.75, getFloorPixelsPerInch(shellBox) * thicknessInches);
+    const dimension = className === "room-wall-segment-line" && state.selectedKind === "room" && state.selectedId === room.id
+        ? buildPolygonWallDimension(room, segment, edgeStart, edgeEnd, start, end, shellBox, thicknessInches)
+        : "";
+    return `
+        <line class="${className}" x1="${start.x.toFixed(1)}" y1="${start.y.toFixed(1)}"
+            x2="${end.x.toFixed(1)}" y2="${end.y.toFixed(1)}" style="stroke-width:${strokeWidth.toFixed(2)}px"></line>
+        ${dimension}
+    `;
+}
+
+function interpolateScreenPoint(start, end, ratio) {
+    return {
+        x: start.x + ((end.x - start.x) * ratio),
+        y: start.y + ((end.y - start.y) * ratio),
+    };
+}
+
+function getPolygonSegmentEdgeIndex(segment, fallbackIndex, pointCount) {
+    if (Number.isInteger(Number(segment?.edge_index))) {
+        return clamp(Number(segment.edge_index), 0, pointCount - 1);
+    }
+    const legacyEdges = { top: 0, right: 1, bottom: 2, left: 3 };
+    const mapped = legacyEdges[String(segment?.edge || "")];
+    return mapped === undefined ? fallbackIndex % pointCount : clamp(mapped, 0, pointCount - 1);
+}
+
+function findPolygonHostWall(room, edgeIndex) {
+    const walls = normalizeRoomWalls(room.properties.walls);
+    return walls.find((wall, index) => getPolygonSegmentEdgeIndex(wall, index, Math.max(getRoomPolygonRatios(room).length, 3)) === edgeIndex)
+        || { thickness_inches: DEFAULT_WALL_THICKNESS_INCHES };
+}
+
+function getFloorPixelsPerInch(shellBox) {
+    const house = state.assessment?.objects?.housePlan?.properties || {};
+    const linearUnit = String(house.linear_unit || "feet");
+    const widthInches = Math.max(convertRoomLengthToInches(Number(house.width || 1), linearUnit), 1);
+    const heightInches = Math.max(convertRoomLengthToInches(Number(house.height || 1), linearUnit), 1);
+    return Math.min(shellBox.width / widthInches, shellBox.height / heightInches);
+}
+
+function buildPolygonWallDimension(room, segment, edgeStart, edgeEnd, start, end, shellBox, thicknessInches) {
+    const dx = edgeEnd.x - edgeStart.x;
+    const dy = edgeEnd.y - edgeStart.y;
+    const screenLength = Math.max(Math.hypot(dx, dy), 1);
+    const normal = { x: -dy / screenLength, y: dx / screenLength };
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const offset = 13 / (state.detailZoom || 1);
+    const house = state.assessment?.objects?.housePlan?.properties || {};
+    const unit = String(room.properties.linear_unit || house.linear_unit || "feet");
+    const physicalDx = ((edgeEnd.x - edgeStart.x) / Math.max(shellBox.width, 1)) * Number(house.width || 0);
+    const physicalDy = ((edgeEnd.y - edgeStart.y) / Math.max(shellBox.height, 1)) * Number(house.height || 0);
+    const span = Math.abs(Number(segment.end_ratio ?? 1) - Number(segment.start_ratio ?? 0));
+    const length = Math.hypot(physicalDx, physicalDy) * span;
+    const label = `${formatLinearRoomLength(length, unit)} · t ${formatNumber(thicknessInches)}\"`;
+    return `<text class="room-wall-length zoom-stable-label" text-anchor="middle"
+        transform="${buildStableLabelTransform(midpoint.x + (normal.x * offset), midpoint.y + (normal.y * offset))}">${escapeHtml(label)}</text>`;
+}
+
+function formatLinearRoomLength(length, unit) {
+    if (unit === "feet") {
+        const totalInches = Math.max(0, Math.round(length * 12));
+        return `${Math.floor(totalInches / 12)}'-${totalInches % 12}\"`;
+    }
+    return `${formatNumber(length)} ${unit}`;
 }
 
 function buildStairMarkup(room, x, y, width, height) {
@@ -2673,6 +3064,34 @@ function handleFloorPlanPointerMove(event) {
 
     const deltaX = (pointer.x - state.floorPlanInteraction.startPointer.x) / state.floorPlanInteraction.shellShape.width;
     const deltaY = (pointer.y - state.floorPlanInteraction.startPointer.y) / state.floorPlanInteraction.shellShape.height;
+    const polygon = state.floorPlanInteraction.startPolygon || [];
+    if (polygon.length >= 3 && ["move-room", "move-room-vertex"].includes(state.floorPlanInteraction.mode)) {
+        let nextPolygon = polygon.map((point) => [...point]);
+        if (state.floorPlanInteraction.mode === "move-room-vertex") {
+            const pointIndex = state.floorPlanInteraction.pointIndex;
+            if (Number.isInteger(pointIndex) && nextPolygon[pointIndex]) {
+                nextPolygon[pointIndex] = [
+                    roundValue(clamp(nextPolygon[pointIndex][0] + deltaX, 0, 1), 4),
+                    roundValue(clamp(nextPolygon[pointIndex][1] + deltaY, 0, 1), 4),
+                ];
+            }
+        } else {
+            const xs = nextPolygon.map((point) => point[0]);
+            const ys = nextPolygon.map((point) => point[1]);
+            const translatedX = clamp(deltaX, -Math.min(...xs), 1 - Math.max(...xs));
+            const translatedY = clamp(deltaY, -Math.min(...ys), 1 - Math.max(...ys));
+            nextPolygon = nextPolygon.map((point) => [
+                roundValue(point[0] + translatedX, 4),
+                roundValue(point[1] + translatedY, 4),
+            ]);
+        }
+        room.properties.floor_polygon_ratios = nextPolygon;
+        syncRoomPolygonBounds(room, nextPolygon);
+        state.floorPlanInteraction.startPointer = pointer;
+        state.floorPlanInteraction.startPolygon = nextPolygon.map((point) => [...point]);
+        renderInteractiveDiagram();
+        return;
+    }
     let nextX = state.floorPlanInteraction.startLayout.x;
     let nextY = state.floorPlanInteraction.startLayout.y;
     let nextWidth = state.floorPlanInteraction.startLayout.width;
@@ -2846,6 +3265,8 @@ function handleInteriorFixturePointerMove(event) {
             Math.max(0, interaction.roomDepthInches - interaction.startFixture.depth_inches),
         ), 1);
     }
+
+    Object.assign(fixture, fitFixtureToInteriorRoom(fixture, design, interaction.startFixture));
 
     setBathroomFixtureLayout(sourceRoom, fixtures);
     refreshInteriorDesignWindow();
@@ -3021,8 +3442,8 @@ function getFootprintLengthWidth(points) {
 function computePolygonArea(points) {
     let sum = 0;
     for (let index = 0; index < points.length; index += 1) {
-        const [x1, y1] = points[index];
-        const [x2, y2] = points[(index + 1) % points.length];
+        const [x1, y1] = getPointCoordinates(points[index]);
+        const [x2, y2] = getPointCoordinates(points[(index + 1) % points.length]);
         sum += (x1 * y2) - (x2 * y1);
     }
     return Math.abs(sum) / 2;
@@ -3031,11 +3452,17 @@ function computePolygonArea(points) {
 function computePolygonPerimeter(points) {
     let sum = 0;
     for (let index = 0; index < points.length; index += 1) {
-        const [x1, y1] = points[index];
-        const [x2, y2] = points[(index + 1) % points.length];
+        const [x1, y1] = getPointCoordinates(points[index]);
+        const [x2, y2] = getPointCoordinates(points[(index + 1) % points.length]);
         sum += Math.hypot(x2 - x1, y2 - y1);
     }
     return sum;
+}
+
+function getPointCoordinates(point) {
+    return Array.isArray(point)
+        ? [Number(point[0]), Number(point[1])]
+        : [Number(point?.x || 0), Number(point?.y || 0)];
 }
 
 function updateHousePlanPoints(points) {
@@ -3085,6 +3512,62 @@ function removeHousePlan() {
     syncHousePlanObjects(state.assessment);
     state.selectedKind = "parcel";
     state.selectedId = "parcel";
+    renderSelection();
+}
+
+function addSelectedPlanVertex() {
+    const room = state.selectedKind === "room" ? getSelectedObject() : null;
+    if (room) {
+        addRoomPolygonVertex(room);
+        return;
+    }
+    addHousePlanVertex();
+}
+
+function removeSelectedPlanVertex() {
+    const room = state.selectedKind === "room" ? getSelectedObject() : null;
+    if (room) {
+        removeRoomPolygonVertex(room);
+        return;
+    }
+    removeHousePlanVertex();
+}
+
+function addRoomPolygonVertex(room) {
+    const points = ensureRoomPolygon(room).map((point) => [...point]);
+    let insertAfterIndex = 0;
+    let longestEdge = -1;
+    points.forEach((point, index) => {
+        const next = points[(index + 1) % points.length];
+        const length = Math.hypot(next[0] - point[0], next[1] - point[1]);
+        if (length > longestEdge) {
+            longestEdge = length;
+            insertAfterIndex = index;
+        }
+    });
+    const current = points[insertAfterIndex];
+    const next = points[(insertAfterIndex + 1) % points.length];
+    splitPolygonRoomEdgeSegments(room, insertAfterIndex, points.length);
+    points.splice(insertAfterIndex + 1, 0, [
+        roundValue((current[0] + next[0]) / 2, 4),
+        roundValue((current[1] + next[1]) / 2, 4),
+    ]);
+    room.properties.floor_polygon_ratios = points;
+    state.selectedRoomVertexIndex = insertAfterIndex + 1;
+    syncRoomPhysicalProperties(room);
+    renderSelection();
+}
+
+function removeRoomPolygonVertex(room) {
+    const points = getRoomPolygonRatios(room).map((point) => [...point]);
+    if (points.length <= 3 || !Number.isInteger(state.selectedRoomVertexIndex)) {
+        return;
+    }
+    mergePolygonRoomVertexSegments(room, state.selectedRoomVertexIndex, points.length);
+    points.splice(state.selectedRoomVertexIndex, 1);
+    room.properties.floor_polygon_ratios = points;
+    state.selectedRoomVertexIndex = Math.min(state.selectedRoomVertexIndex, points.length - 1);
+    syncRoomPhysicalProperties(room);
     renderSelection();
 }
 
@@ -3408,6 +3891,9 @@ function renderPropertyEntry(item, key, value, properties) {
     if (item.kind === "room" && key === "room_type") {
         return `<dt>${label}</dt><dd>${buildRoomTypeEditor(value)}</dd>`;
     }
+    if (item.kind === "room" && key === "room_shape") {
+        return `<dt>${label}</dt><dd>${buildRoomShapeEditor(value)}</dd>`;
+    }
     if (item.kind === "room" && key === "stair_clear_width_feet") {
         return `<dt>${label}</dt><dd>${buildStairWidthEditor(value)}</dd>`;
     }
@@ -3418,8 +3904,14 @@ function renderPropertyEntry(item, key, value, properties) {
 }
 
 function buildDisplayProperties(item) {
+    const roomPolygon = item.kind === "room" ? getRoomPolygonRatios(item) : [];
     const baseProperties = item.kind === "room"
-        ? { room_name: item.label, ...(item.properties || {}) }
+        ? {
+            room_name: item.label,
+            room_shape: roomPolygon.length >= 3 ? "polygon" : "rectangle",
+            room_vertex_count: roomPolygon.length >= 3 ? roomPolygon.length : 4,
+            ...(item.properties || {}),
+        }
         : { ...(item.properties || {}) };
     if (item.kind === "room" && String(baseProperties.room_type || "").toLowerCase() === "stair") {
         const direction = String(baseProperties.stair_direction || "up");
@@ -3872,6 +4364,10 @@ function updateFeatureActions() {
     const isHouseVertexSelected = hasAssessment && state.selectedKind === "house-vertex" && Boolean(getSelectedObject());
     const isFeatureSelected = hasAssessment && state.selectedKind === "feature" && Boolean(getSelectedObject());
     const selectedRoom = hasAssessment && state.selectedKind === "room" ? getSelectedObject() : null;
+    const selectedRoomPolygon = selectedRoom ? getRoomPolygonRatios(selectedRoom) : [];
+    const isRoomVertexSelected = Boolean(selectedRoom)
+        && selectedRoomPolygon.length > 3
+        && Number.isInteger(state.selectedRoomVertexIndex);
     const isStairSelected = Boolean(selectedRoom) && String(selectedRoom.properties.room_type || "").toLowerCase() === "stair";
     const isFloorView = ["basement", "first-floor", "second-floor"].includes(state.activeView);
 
@@ -3883,7 +4379,11 @@ function updateFeatureActions() {
     removeRoomButton.disabled = !selectedRoom;
     rotateStairButton.disabled = !isStairSelected;
     addHouseVertexButton.disabled = !hasHousePlan;
-    removeHouseVertexButton.disabled = !isHouseVertexSelected || state.assessment.house_plan_points.length <= 3;
+    addHouseVertexButton.textContent = selectedRoom ? "Add Room Vertex" : "Add Vertex";
+    removeHouseVertexButton.textContent = selectedRoom ? "Remove Room Vertex" : "Remove Vertex";
+    removeHouseVertexButton.disabled = selectedRoom
+        ? !isRoomVertexSelected
+        : !isHouseVertexSelected || state.assessment.house_plan_points.length <= 3;
     saveButton.disabled = !hasAssessment || !isNeo4jBacked;
     removeButton.disabled = !isFeatureSelected || !isNeo4jBacked;
 }
@@ -3924,6 +4424,7 @@ function addFloorRoom() {
             floor_y_ratio: layout.y,
             floor_width_ratio: layout.width,
             floor_height_ratio: layout.height,
+            floor_polygon_ratios: [],
             stair_direction: "up",
             walls: buildDefaultRoomWalls(),
             doors: buildDefaultRoomDoors(),
@@ -3954,6 +4455,7 @@ function removeSelectedRoom() {
     state.selectedKind = "floor-plan";
     state.selectedId = fallbackLevel;
     state.activeView = fallbackLevel;
+    state.selectedRoomVertexIndex = null;
     renderCatalog();
     renderSelection();
 }
@@ -3984,6 +4486,10 @@ function syncRoomPhysicalProperties(room) {
     const houseWidth = Number(houseProperties.width || 0);
     const houseHeight = Number(houseProperties.height || 0);
     const houseArea = Number(houseProperties.area || 0);
+    const polygon = getRoomPolygonRatios(room);
+    if (polygon.length >= 3) {
+        syncRoomPolygonBounds(room, polygon);
+    }
     let widthRatio = Number(room.properties.floor_width_ratio || 0);
     let heightRatio = Number(room.properties.floor_height_ratio || 0);
 
@@ -3994,10 +4500,158 @@ function syncRoomPhysicalProperties(room) {
         widthRatio = Number(room.properties.floor_width_ratio || 0);
         heightRatio = Number(room.properties.floor_height_ratio || 0);
     }
-    room.properties.area = roundValue(houseArea * widthRatio * heightRatio, 2);
+    room.properties.area = roundValue(houseArea * (
+        polygon.length >= 3 ? computePolygonArea(polygon) : widthRatio * heightRatio
+    ), 2);
     room.properties.walls = normalizeRoomWalls(room.properties.walls);
     room.properties.doors = normalizeRoomOpenings(room.properties.doors);
     room.properties.windows = normalizeRoomOpenings(room.properties.windows);
+}
+
+function normalizeRoomPolygonRatios(value) {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    const points = value.filter((point) => Array.isArray(point) && point.length >= 2).map((point) => [
+        roundValue(clamp(Number(point[0]), 0, 1), 4),
+        roundValue(clamp(Number(point[1]), 0, 1), 4),
+    ]);
+    return points.length >= 3 ? points : [];
+}
+
+function getRoomPolygonRatios(room) {
+    return normalizeRoomPolygonRatios(room?.properties?.floor_polygon_ratios);
+}
+
+function buildRoomRectanglePolygon(room) {
+    const x = clamp(Number(room.properties.floor_x_ratio || 0.1), 0, 1);
+    const y = clamp(Number(room.properties.floor_y_ratio || 0.1), 0, 1);
+    const width = clamp(Number(room.properties.floor_width_ratio || 0.3), 0.01, 1 - x);
+    const height = clamp(Number(room.properties.floor_height_ratio || 0.2), 0.01, 1 - y);
+    return [
+        [x, y],
+        [x + width, y],
+        [x + width, y + height],
+        [x, y + height],
+    ].map((point) => point.map((value) => roundValue(value, 4)));
+}
+
+function ensureRoomPolygon(room) {
+    const existing = getRoomPolygonRatios(room);
+    if (existing.length >= 3) {
+        assignPolygonSegmentEdges(room, existing.length);
+        return existing;
+    }
+    const polygon = buildRoomRectanglePolygon(room);
+    room.properties.floor_polygon_ratios = polygon;
+    assignPolygonSegmentEdges(room, polygon.length);
+    syncRoomPolygonBounds(room, polygon);
+    return polygon;
+}
+
+function assignPolygonSegmentEdges(room, pointCount) {
+    ["walls", "doors", "windows"].forEach((kind) => {
+        const list = Array.isArray(room.properties[kind]) ? room.properties[kind] : [];
+        room.properties[kind] = list.map((segment, index) => ({
+            ...segment,
+            edge_index: getPolygonSegmentEdgeIndex(segment, index, pointCount),
+        }));
+    });
+}
+
+function splitPolygonRoomEdgeSegments(room, edgeIndex, pointCount) {
+    ["walls", "doors", "windows"].forEach((kind) => {
+        const source = Array.isArray(room.properties[kind]) ? room.properties[kind] : [];
+        const next = [];
+        source.forEach((segment, index) => {
+            const currentEdge = getPolygonSegmentEdgeIndex(segment, index, pointCount);
+            if (currentEdge > edgeIndex) {
+                next.push({ ...segment, edge_index: currentEdge + 1 });
+                return;
+            }
+            if (currentEdge < edgeIndex) {
+                next.push({ ...segment, edge_index: currentEdge });
+                return;
+            }
+            const start = clamp(Number(segment.start_ratio ?? 0), 0, 1);
+            const end = clamp(Number(segment.end_ratio ?? 1), 0, 1);
+            if (end <= 0.5) {
+                next.push({ ...segment, edge_index: edgeIndex, start_ratio: start * 2, end_ratio: end * 2 });
+            } else if (start >= 0.5) {
+                next.push({ ...segment, edge_index: edgeIndex + 1, start_ratio: (start - 0.5) * 2, end_ratio: (end - 0.5) * 2 });
+            } else {
+                next.push({ ...segment, edge_index: edgeIndex, start_ratio: start * 2, end_ratio: 1 });
+                next.push({ ...segment, edge_index: edgeIndex + 1, start_ratio: 0, end_ratio: (end - 0.5) * 2 });
+            }
+        });
+        room.properties[kind] = kind === "walls" ? normalizeRoomWalls(next) : normalizeRoomOpenings(next);
+    });
+}
+
+function mergePolygonRoomVertexSegments(room, vertexIndex, pointCount) {
+    const previousEdge = (vertexIndex - 1 + pointCount) % pointCount;
+    const removedEdge = vertexIndex;
+    const mergedEdge = vertexIndex === 0 ? pointCount - 2 : previousEdge;
+    ["walls", "doors", "windows"].forEach((kind) => {
+        const source = Array.isArray(room.properties[kind]) ? room.properties[kind] : [];
+        const next = source.map((segment, index) => {
+            const currentEdge = getPolygonSegmentEdgeIndex(segment, index, pointCount);
+            if (currentEdge === previousEdge) {
+                return {
+                    ...segment,
+                    edge_index: mergedEdge,
+                    start_ratio: Number(segment.start_ratio ?? 0) / 2,
+                    end_ratio: Number(segment.end_ratio ?? 1) / 2,
+                };
+            }
+            if (currentEdge === removedEdge) {
+                return {
+                    ...segment,
+                    edge_index: mergedEdge,
+                    start_ratio: 0.5 + (Number(segment.start_ratio ?? 0) / 2),
+                    end_ratio: 0.5 + (Number(segment.end_ratio ?? 1) / 2),
+                };
+            }
+            return { ...segment, edge_index: currentEdge > removedEdge ? currentEdge - 1 : currentEdge };
+        });
+        room.properties[kind] = kind === "walls" ? normalizeRoomWalls(next) : normalizeRoomOpenings(next);
+    });
+}
+
+function syncRoomPolygonBounds(room, points = getRoomPolygonRatios(room)) {
+    if (points.length < 3) {
+        return;
+    }
+    const xs = points.map((point) => point[0]);
+    const ys = points.map((point) => point[1]);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    room.properties.floor_x_ratio = roundValue(minX, 4);
+    room.properties.floor_y_ratio = roundValue(minY, 4);
+    room.properties.floor_width_ratio = roundValue(Math.max(...xs) - minX, 4);
+    room.properties.floor_height_ratio = roundValue(Math.max(...ys) - minY, 4);
+    room.properties.floor_polygon_ratios = points.map((point) => point.map((value) => roundValue(value, 4)));
+}
+
+function convertRoomToRectangle(room) {
+    const points = getRoomPolygonRatios(room);
+    if (points.length >= 3) {
+        syncRoomPolygonBounds(room, points);
+    }
+    room.properties.floor_polygon_ratios = [];
+    const rectangleEdges = ["top", "right", "bottom", "left"];
+    ["walls", "doors", "windows"].forEach((kind) => {
+        const list = Array.isArray(room.properties[kind]) ? room.properties[kind] : [];
+        room.properties[kind] = list.filter((segment, index) => (
+            getPolygonSegmentEdgeIndex(segment, index, Math.max(points.length, 4)) < 4
+        )).map((segment, index) => {
+            const next = { ...segment, edge: rectangleEdges[getPolygonSegmentEdgeIndex(segment, index, Math.max(points.length, 4))] };
+            delete next.edge_index;
+            return next;
+        });
+    });
+    state.selectedRoomVertexIndex = null;
+    syncRoomPhysicalProperties(room);
 }
 
 function buildDefaultRoomWalls() {
@@ -4022,6 +4676,7 @@ function normalizeRoomWalls(items) {
     const migrateLegacyDefaults = isLegacyDefaultWallSet(list);
     return list.map((item) => ({
         edge: String(item.edge || "top"),
+        ...(Number.isInteger(Number(item.edge_index)) ? { edge_index: Number(item.edge_index) } : {}),
         start_ratio: roundValue(Number(item.start_ratio ?? 0), 4),
         end_ratio: roundValue(Number(item.end_ratio ?? 1), 4),
         thickness_inches: migrateLegacyDefaults
@@ -4049,6 +4704,7 @@ function normalizeRoomOpenings(items) {
     const list = Array.isArray(items) ? items : [];
     return list.map((item) => ({
         edge: String(item.edge || "top"),
+        ...(Number.isInteger(Number(item.edge_index)) ? { edge_index: Number(item.edge_index) } : {}),
         start_ratio: roundValue(Number(item.start_ratio ?? 0.2), 4),
         end_ratio: roundValue(Number(item.end_ratio ?? 0.8), 4),
     }));
@@ -4061,11 +4717,21 @@ function enforceStairConstraints(room, houseWidth, houseHeight) {
     if (direction === "up" || direction === "down") {
         const clamped = clamp(Number(room.properties.width || 0), minFeet, maxFeet);
         room.properties.width = roundValue(clamped, 2);
-        room.properties.floor_width_ratio = roundValue(clamped / Math.max(houseWidth, 1), 4);
+        const ratio = roundValue(clamped / Math.max(houseWidth, 1), 4);
+        if (getRoomPolygonRatios(room).length >= 3) {
+            scaleRoomPolygonDimension(room, true, ratio);
+        } else {
+            room.properties.floor_width_ratio = ratio;
+        }
     } else {
         const clamped = clamp(Number(room.properties.height || 0), minFeet, maxFeet);
         room.properties.height = roundValue(clamped, 2);
-        room.properties.floor_height_ratio = roundValue(clamped / Math.max(houseHeight, 1), 4);
+        const ratio = roundValue(clamped / Math.max(houseHeight, 1), 4);
+        if (getRoomPolygonRatios(room).length >= 3) {
+            scaleRoomPolygonDimension(room, false, ratio);
+        } else {
+            room.properties.floor_height_ratio = ratio;
+        }
     }
 }
 
@@ -4240,6 +4906,7 @@ async function saveFeatures() {
                         floor_y_ratio: room.properties.floor_y_ratio || 0,
                         floor_width_ratio: room.properties.floor_width_ratio || 0,
                         floor_height_ratio: room.properties.floor_height_ratio || 0,
+                        floor_polygon_ratios: getRoomPolygonRatios(room),
                         stair_direction: room.properties.stair_direction || "up",
                         walls: room.properties.walls || [],
                         doors: room.properties.doors || [],
@@ -4328,7 +4995,9 @@ function formatRoomSegmentSummary(items, kind) {
         return `No ${kind}`;
     }
     return items.map((item, index) => {
-        const edge = titleCase(String(item.edge || "top"));
+        const edge = Number.isInteger(Number(item.edge_index))
+            ? `Edge ${Number(item.edge_index) + 1}`
+            : titleCase(String(item.edge || "top"));
         const start = `${Math.round(Number(item.start_ratio ?? 0) * 100)}%`;
         const end = `${Math.round(Number(item.end_ratio ?? 1) * 100)}%`;
         return `${index + 1}. ${edge} ${start}-${end}`;
@@ -4338,6 +5007,21 @@ function formatRoomSegmentSummary(items, kind) {
 function getRoomWallLength(room, wall) {
     const edge = String(wall?.edge || "top");
     const house = state.assessment?.objects?.housePlan?.properties || {};
+    const polygon = getRoomPolygonRatios(room);
+    if (polygon.length >= 3) {
+        const edgeIndex = getPolygonSegmentEdgeIndex(wall, 0, polygon.length);
+        const startPoint = polygon[edgeIndex];
+        const endPoint = polygon[(edgeIndex + 1) % polygon.length];
+        const physicalWidth = Number(house.width || room?.properties?.width || 0);
+        const physicalHeight = Number(house.height || room?.properties?.height || 0);
+        const edgeLength = Math.hypot(
+            (endPoint[0] - startPoint[0]) * physicalWidth,
+            (endPoint[1] - startPoint[1]) * physicalHeight,
+        );
+        const start = clamp(Number(wall?.start_ratio ?? 0), 0, 1);
+        const end = clamp(Number(wall?.end_ratio ?? 1), 0, 1);
+        return Math.abs(end - start) * edgeLength;
+    }
     const isHorizontal = edge === "top" || edge === "bottom";
     const ratioKey = isHorizontal ? "floor_width_ratio" : "floor_height_ratio";
     const dimensionKey = isHorizontal ? "width" : "height";
@@ -4385,6 +5069,7 @@ function convertRoomLengthToInches(value, linearUnit) {
 
 function buildRoomSegmentEditor(kind, items, room) {
     const list = Array.isArray(items) ? items : [];
+    const polygonPointCount = getRoomPolygonRatios(room).length;
     const rows = list.map((item, index) => {
         const length = kind === "walls"
             ? `<span class="segment-length">
@@ -4400,9 +5085,13 @@ function buildRoomSegmentEditor(kind, items, room) {
         <div class="segment-item">
             <div class="segment-row">
                 <select data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="edge">
-                    ${["top", "right", "bottom", "left"].map((edge) => (
-                        `<option value="${edge}" ${String(item.edge || "top") === edge ? "selected" : ""}>${escapeHtml(titleCase(edge))}</option>`
-                    )).join("")}
+                    ${polygonPointCount >= 3
+                        ? Array.from({ length: polygonPointCount }, (_, edgeIndex) => (
+                            `<option value="polygon:${edgeIndex}" ${getPolygonSegmentEdgeIndex(item, index, polygonPointCount) === edgeIndex ? "selected" : ""}>Edge ${edgeIndex + 1}</option>`
+                        )).join("")
+                        : ["top", "right", "bottom", "left"].map((edge) => (
+                            `<option value="${edge}" ${String(item.edge || "top") === edge ? "selected" : ""}>${escapeHtml(titleCase(edge))}</option>`
+                        )).join("")}
                 </select>
                 <input type="number" min="0" max="100" step="1"
                     value="${Math.round(Number(item.start_ratio ?? 0) * 100)}"
@@ -4486,6 +5175,16 @@ function buildRoomNameEditor(value) {
     `;
 }
 
+function buildRoomShapeEditor(value) {
+    const shape = value === "polygon" ? "polygon" : "rectangle";
+    return `
+        <select class="room-type-editor" data-property-editor="room-shape" aria-label="Room shape">
+            <option value="rectangle" ${shape === "rectangle" ? "selected" : ""}>Rectangle</option>
+            <option value="polygon" ${shape === "polygon" ? "selected" : ""}>Polygon</option>
+        </select>
+    `;
+}
+
 function handlePropertyEditorChange(event) {
     const target = event.target;
     if (target.dataset.interiorSegmentField) {
@@ -4530,6 +5229,15 @@ function handlePropertyEditorChange(event) {
         renderSelection();
         return;
     }
+    if (target.dataset.propertyEditor === "room-shape") {
+        const room = state.selectedKind === "room" ? getSelectedObject() : null;
+        if (!room) {
+            return;
+        }
+        applyRoomShapeValue(room, target.value);
+        renderSelection();
+        return;
+    }
     if (target.dataset.propertyEditor === "room-name") {
         const room = state.selectedKind === "room" ? getSelectedObject() : null;
         if (!room) {
@@ -4555,7 +5263,13 @@ function handlePropertyEditorChange(event) {
         return;
     }
     if (field === "edge") {
-        list[index].edge = String(target.value || "top");
+        const edgeValue = String(target.value || "top");
+        if (edgeValue.startsWith("polygon:")) {
+            list[index].edge_index = Number(edgeValue.split(":")[1]);
+        } else {
+            list[index].edge = edgeValue;
+            delete list[index].edge_index;
+        }
     } else if (field === "thickness_inches" && kind === "walls") {
         list[index].thickness_inches = roundValue(clamp(Number(target.value || 6), 1, 24), 2);
     } else {
@@ -4581,7 +5295,7 @@ function addBathroomFixture(type) {
     }
     const fixtures = getBathroomFixtures(design).map((fixture) => ({ ...fixture }));
     const offset = 6 + (fixtures.length % 6) * 6;
-    const fixture = createBathroomFixture(type, offset, offset);
+    const fixture = fitFixtureToInteriorRoom(createBathroomFixture(type, offset, offset), design);
     fixtures.push(fixture);
     state.selectedInteriorFixtureId = fixture.id;
     state.selectedInteriorSegmentKind = null;
@@ -4602,7 +5316,7 @@ function addInteriorRoomSegment(kind) {
     const list = Array.isArray(sourceRoom.properties[kind])
         ? sourceRoom.properties[kind].map((segment) => ({ ...segment }))
         : [];
-    list.push(buildDefaultSegment(kind));
+    list.push(buildDefaultSegment(kind, sourceRoom));
     sourceRoom.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
     state.selectedInteriorFixtureId = null;
     state.selectedInteriorSegmentKind = kind;
@@ -4652,7 +5366,12 @@ function applyInteriorSegmentField(field, rawValue) {
         return;
     }
     if (field === "edge") {
-        segment.edge = ["top", "right", "bottom", "left"].includes(rawValue) ? rawValue : "top";
+        if (String(rawValue).startsWith("polygon:")) {
+            segment.edge_index = Number(String(rawValue).split(":")[1]);
+        } else {
+            segment.edge = ["top", "right", "bottom", "left"].includes(rawValue) ? rawValue : "top";
+            delete segment.edge_index;
+        }
     } else if (field === "thickness_inches" && kind === "walls") {
         segment.thickness_inches = roundValue(clamp(Number(rawValue || 6), 1, 24), 2);
     } else {
@@ -4723,6 +5442,7 @@ function applyBathroomFixtureField(field, rawValue) {
         fixture.x_inches = roundValue(clamp(fixture.x_inches, 0, Math.max(0, roomWidthInches - fixture.width_inches)), 1);
         fixture.y_inches = roundValue(clamp(fixture.y_inches, 0, Math.max(0, roomDepthInches - fixture.depth_inches)), 1);
     }
+    Object.assign(fixture, fitFixtureToInteriorRoom(fixture, design));
     setBathroomFixtureLayout(sourceRoom, fixtures);
     refreshInteriorDesignWindow();
 }
@@ -4852,7 +5572,7 @@ function handlePropertyEditorClick(event) {
     const kind = actionTarget.dataset.segmentKind;
     const list = Array.isArray(room.properties[kind]) ? room.properties[kind].map((item) => ({ ...item })) : [];
     if (action === "add") {
-        list.push(buildDefaultSegment(kind));
+        list.push(buildDefaultSegment(kind, room));
     } else if (action === "remove") {
         const index = Number(actionTarget.dataset.segmentIndex);
         list.splice(index, 1);
@@ -4861,14 +5581,15 @@ function handlePropertyEditorClick(event) {
     renderSelection();
 }
 
-function buildDefaultSegment(kind) {
+function buildDefaultSegment(kind, room = null) {
+    const polygonEdge = room && getRoomPolygonRatios(room).length >= 3 ? { edge_index: 0 } : {};
     if (kind === "walls") {
-        return { edge: "top", start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES };
+        return { edge: "top", ...polygonEdge, start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES };
     }
     if (kind === "doors") {
-        return { edge: "bottom", start_ratio: 0.38, end_ratio: 0.62 };
+        return { edge: "bottom", ...polygonEdge, start_ratio: 0.38, end_ratio: 0.62 };
     }
-    return { edge: "top", start_ratio: 0.2, end_ratio: 0.8 };
+    return { edge: "top", ...polygonEdge, start_ratio: 0.2, end_ratio: 0.8 };
 }
 
 function applyStairWidthValue(room, widthFeet) {
@@ -4882,10 +5603,20 @@ function applyStairWidthValue(room, widthFeet) {
 
     if (direction === "left" || direction === "right") {
         room.properties.height = roundValue(widthValue, 2);
-        room.properties.floor_height_ratio = roundValue(widthValue / houseHeight, 4);
+        const ratio = roundValue(widthValue / houseHeight, 4);
+        if (getRoomPolygonRatios(room).length >= 3) {
+            scaleRoomPolygonDimension(room, false, ratio);
+        } else {
+            room.properties.floor_height_ratio = ratio;
+        }
     } else {
         room.properties.width = roundValue(widthValue, 2);
-        room.properties.floor_width_ratio = roundValue(widthValue / houseWidth, 4);
+        const ratio = roundValue(widthValue / houseWidth, 4);
+        if (getRoomPolygonRatios(room).length >= 3) {
+            scaleRoomPolygonDimension(room, true, ratio);
+        } else {
+            room.properties.floor_width_ratio = ratio;
+        }
     }
 
     syncRoomPhysicalProperties(room);
@@ -4906,8 +5637,30 @@ function applyRoomDimensionValue(room, dimension, rawValue) {
     const maxRatio = isWidth ? limits.maxWidth(position) : limits.maxHeight(position);
     const requestedRatio = Number.isFinite(rawValue) ? rawValue / houseDimension : minRatio;
 
-    room.properties[ratioKey] = roundValue(clamp(requestedRatio, minRatio, maxRatio), 4);
+    const nextRatio = roundValue(clamp(requestedRatio, minRatio, maxRatio), 4);
+    if (getRoomPolygonRatios(room).length >= 3) {
+        scaleRoomPolygonDimension(room, isWidth, nextRatio);
+    } else {
+        room.properties[ratioKey] = nextRatio;
+    }
     syncRoomPhysicalProperties(room);
+}
+
+function scaleRoomPolygonDimension(room, isWidth, nextSpan) {
+    const points = getRoomPolygonRatios(room);
+    if (points.length < 3) {
+        return;
+    }
+    const axis = isWidth ? 0 : 1;
+    const values = points.map((point) => point[axis]);
+    const minimum = Math.min(...values);
+    const currentSpan = Math.max(Math.max(...values) - minimum, 0.0001);
+    const scaled = points.map((point) => {
+        const nextPoint = [...point];
+        nextPoint[axis] = roundValue(minimum + (((point[axis] - minimum) / currentSpan) * nextSpan), 4);
+        return nextPoint;
+    });
+    syncRoomPolygonBounds(room, scaled);
 }
 
 function applyRoomTypeValue(room, rawValue) {
@@ -4929,6 +5682,15 @@ function applyRoomNameValue(room, rawValue) {
     room.label = roomName;
 }
 
+function applyRoomShapeValue(room, rawValue) {
+    if (String(rawValue) === "polygon") {
+        ensureRoomPolygon(room);
+    } else {
+        convertRoomToRectangle(room);
+    }
+    syncRoomPhysicalProperties(room);
+}
+
 function formatAreaValue(area, areaUnit) {
     if (areaUnit === "square feet") {
         return `${formatNumber(Number(area) / 43560)} acre`;
@@ -4944,6 +5706,7 @@ function shouldDisplayProperty(item, key) {
             "floor_y_ratio",
             "floor_width_ratio",
             "floor_height_ratio",
+            "floor_polygon_ratios",
         ]).has(key);
     }
     if (item.kind === "interior-design") {
@@ -4970,6 +5733,8 @@ function formatPropertyLabel(key) {
         room_names: "Rooms",
         room_id: "Room ID",
         room_type: "Room Type",
+        room_shape: "Room Shape",
+        room_vertex_count: "Room Vertices",
         level_name: "Level",
         area_unit: "Area Unit",
         linear_unit: "Linear Unit",

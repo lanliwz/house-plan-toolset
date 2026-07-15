@@ -29,7 +29,7 @@ CREATE CONSTRAINT FloorPlan_floorPlanLevelName_Required IF NOT EXISTS FOR (n:`Fl
 // Definition: An interior space within a house used for a functional domestic purpose.
 // URI: http://www.onto2ai-toolset.com/ontology/house/House#Room
 // Mandatory properties: roomId, roomType, levelName, area, areaUnit, width, height, linearUnit, wallLayoutJson, doorLayoutJson, windowLayoutJson
-// Optional persisted editor property: interiorDesignLayoutJson (House.rdf#interiorDesignLayoutJson)
+// Optional persisted editor properties: floorPolygonJson (House.rdf#floorPolygonJson), interiorDesignLayoutJson (House.rdf#interiorDesignLayoutJson)
 CREATE CONSTRAINT Room_roomId_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`roomId` IS NOT NULL;
 CREATE CONSTRAINT Room_roomType_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`roomType` IS NOT NULL;
 CREATE CONSTRAINT Room_levelName_Required IF NOT EXISTS FOR (n:`Room`) REQUIRE n.`levelName` IS NOT NULL;

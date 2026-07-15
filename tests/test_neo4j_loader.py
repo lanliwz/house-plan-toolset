@@ -31,6 +31,7 @@ def test_room_layout_serialization_preserves_interior_design_components() -> Non
         height=12.0,
         linear_unit="feet",
         notes="Editable bedroom",
+        floor_polygon_ratios=[[0.1, 0.1], [0.4, 0.1], [0.45, 0.3], [0.1, 0.3]],
         interior_design={
             "fixture_layout": [
                 {
@@ -49,6 +50,7 @@ def test_room_layout_serialization_preserves_interior_design_components() -> Non
     restored = neo4j_parcel_loader.load_saved_room_layouts(json.dumps([payload]))
 
     assert restored[0].interior_design == room.interior_design
+    assert restored[0].floor_polygon_ratios == room.floor_polygon_ratios
 
 
 def test_build_feature_collection_creates_onto2ai_parcel_models() -> None:

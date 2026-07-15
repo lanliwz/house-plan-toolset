@@ -35,8 +35,8 @@ def test_web_assets_are_revalidated_and_use_current_cache_versions() -> None:
     assert page_response.status_code == 200
     assert page_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
     assert javascript_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
-    assert "/static/css/styles.css?v=37" in page_response.text
-    assert "/static/js/app.js?v=64" in page_response.text
+    assert "/static/css/styles.css?v=39" in page_response.text
+    assert "/static/js/app.js?v=66" in page_response.text
 
 
 def test_sample_analysis_endpoint_returns_report_payload() -> None:
@@ -147,6 +147,7 @@ def test_save_neo4j_features_endpoint_returns_updated_assessment(monkeypatch) ->
                     "height": 12.0,
                     "linear_unit": "feet",
                     "notes": "Editable bedroom",
+                    "floor_polygon_ratios": [[0.1, 0.1], [0.4, 0.1], [0.45, 0.3], [0.1, 0.3]],
                     "interior_design": {
                         "fixture_layout": [
                             {
@@ -170,6 +171,7 @@ def test_save_neo4j_features_endpoint_returns_updated_assessment(monkeypatch) ->
     assert saved["feature_count"] == 1
     assert saved["house_plan_point_count"] == 4
     assert saved["rooms"][0].interior_design["fixture_layout"][0]["type"] == "bed"
+    assert saved["rooms"][0].floor_polygon_ratios[2] == [0.45, 0.3]
     assert response.json()["parcel_name"] == "p-1"
 
 
@@ -418,6 +420,18 @@ def test_floor_plan_room_dimensions_are_editable() -> None:
     assert 'data-property-editor="room-name"' in javascript
     assert "function applyRoomNameValue" in javascript
     assert "room.label = roomName" in javascript
+    assert 'data-property-editor="room-shape"' in javascript
+    assert "function ensureRoomPolygon" in javascript
+    assert "function addRoomPolygonVertex" in javascript
+    assert 'data-floor-action="move-room-vertex"' in javascript
+    assert "function buildPolygonRoomBoundaryMarkup" in javascript
+    assert "floor_polygon_ratios: getRoomPolygonRatios(room)" in javascript
+    assert "function getPointCoordinates" in javascript
+    assert "function getInteriorRoomPolygonRatios" in javascript
+    assert "function buildInteriorPolygonBoundarySvg" in javascript
+    assert "function fitFixtureToInteriorRoom" in javascript
+    assert '<g clip-path="url(#${clipId})">${furniture}</g>' in javascript
+    assert 'class="interior-floor-fill" points="${polygonPoints}"' in javascript
     assert "function getWallThicknessInches" in javascript
     assert "const DEFAULT_WALL_THICKNESS_INCHES = 4.5" in javascript
     assert "function isLegacyDefaultWallSet" in javascript

@@ -329,6 +329,13 @@
     <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#decimal"/>
   </owl:DatatypeProperty>
 
+  <owl:DatatypeProperty rdf:about="#floorPolygonJson">
+    <rdfs:label>floor polygon json</rdfs:label>
+    <skos:definition>Optional serialized ordered sequence of normalized floor-shell coordinate pairs defining a polygonal room footprint; rectangular placement ratios remain the backward-compatible bounding box.</skos:definition>
+    <rdfs:domain rdf:resource="#Room"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+
   <owl:DatatypeProperty rdf:about="#stairDirection">
     <rdfs:label>stair direction</rdfs:label>
     <skos:definition>Direction of stair travel or stair graphic orientation in the floor-plan editor.</skos:definition>

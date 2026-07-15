@@ -588,6 +588,7 @@ def serialize_room_summary(room: RoomSummary) -> dict[str, Any]:
         "floor_y_ratio": room.floor_y_ratio,
         "floor_width_ratio": room.floor_width_ratio,
         "floor_height_ratio": room.floor_height_ratio,
+        "floor_polygon_ratios": room.floor_polygon_ratios,
         "stair_direction": room.stair_direction,
         "walls": room.walls,
         "doors": room.doors,
@@ -626,6 +627,7 @@ def load_saved_room_layouts(value: Any) -> list[RoomSummary]:
                 floor_y_ratio=float(item.get("floor_y_ratio") or 0.0),
                 floor_width_ratio=float(item.get("floor_width_ratio") or 0.0),
                 floor_height_ratio=float(item.get("floor_height_ratio") or 0.0),
+                floor_polygon_ratios=load_json_points(item.get("floor_polygon_ratios")),
                 stair_direction=str(item.get("stair_direction") or "up"),
                 walls=load_json_layout(item.get("walls")) if isinstance(item.get("walls"), str) else list(item.get("walls") or []),
                 doors=load_json_layout(item.get("doors")) if isinstance(item.get("doors"), str) else list(item.get("doors") or []),
@@ -1047,6 +1049,7 @@ def sync_default_rooms(session, *, house_id: str, house_plan_points: list[tuple[
                 room.height = $height,
                 room.linearUnit = $linear_unit,
                 room.notes = $notes,
+                room.floorPolygonJson = $floor_polygon_json,
                 room.wallLayoutJson = $wall_layout_json,
                 room.doorLayoutJson = $door_layout_json,
                 room.windowLayoutJson = $window_layout_json,
@@ -1065,6 +1068,7 @@ def sync_default_rooms(session, *, house_id: str, house_plan_points: list[tuple[
             height=room.height,
             linear_unit=room.linear_unit,
             notes=room.notes,
+            floor_polygon_json=json.dumps(room.floor_polygon_ratios),
             wall_layout_json=json.dumps(room.walls),
             door_layout_json=json.dumps(room.doors),
             window_layout_json=json.dumps(room.windows),
@@ -1180,6 +1184,7 @@ def hydrate_room_summary(props: dict[str, Any]) -> RoomSummary | None:
         floor_y_ratio=float(props.get("floorYRatio") or 0.0),
         floor_width_ratio=float(props.get("floorWidthRatio") or 0.0),
         floor_height_ratio=float(props.get("floorHeightRatio") or 0.0),
+        floor_polygon_ratios=load_json_points(props.get("floorPolygonJson")),
         stair_direction=str(props.get("stairDirection") or "up"),
         walls=load_json_layout(props.get("wallLayoutJson")),
         doors=load_json_layout(props.get("doorLayoutJson")),
@@ -1228,6 +1233,7 @@ def sync_rooms(session, *, parcel_id: str, rooms: list[RoomSummary]) -> None:
                 room.floorYRatio = $floor_y_ratio,
                 room.floorWidthRatio = $floor_width_ratio,
                 room.floorHeightRatio = $floor_height_ratio,
+                room.floorPolygonJson = $floor_polygon_json,
                 room.stairDirection = $stair_direction,
                 room.wallLayoutJson = $wall_layout_json,
                 room.doorLayoutJson = $door_layout_json,
@@ -1251,6 +1257,7 @@ def sync_rooms(session, *, parcel_id: str, rooms: list[RoomSummary]) -> None:
             floor_y_ratio=room.floor_y_ratio,
             floor_width_ratio=room.floor_width_ratio,
             floor_height_ratio=room.floor_height_ratio,
+            floor_polygon_json=json.dumps(room.floor_polygon_ratios),
             stair_direction=room.stair_direction,
             wall_layout_json=json.dumps(room.walls),
             door_layout_json=json.dumps(room.doors),
@@ -1294,6 +1301,29 @@ def load_json_object(raw_value: Any) -> dict[str, Any]:
     except (TypeError, ValueError, json.JSONDecodeError):
         return {}
     return dict(value) if isinstance(value, dict) else {}
+
+
+def load_json_points(raw_value: Any) -> list[list[float]]:
+    if isinstance(raw_value, list):
+        value = raw_value
+    elif raw_value:
+        try:
+            value = json.loads(str(raw_value))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+    else:
+        return []
+    if not isinstance(value, list):
+        return []
+    points: list[list[float]] = []
+    for point in value:
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            continue
+        try:
+            points.append([float(point[0]), float(point[1])])
+        except (TypeError, ValueError):
+            continue
+    return points if len(points) >= 3 else []
 
 
 def hydrate_utility_summary(props: dict[str, Any]) -> UtilityConnectionSummary | None:

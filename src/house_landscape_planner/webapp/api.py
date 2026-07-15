@@ -120,6 +120,7 @@ class RoomUpdateRequest(BaseModel):
     floor_y_ratio: float = 0.0
     floor_width_ratio: float = 0.0
     floor_height_ratio: float = 0.0
+    floor_polygon_ratios: list[list[float]] = Field(default_factory=list)
     stair_direction: str = "up"
     walls: list[dict[str, object]] = Field(default_factory=list)
     doors: list[dict[str, object]] = Field(default_factory=list)
@@ -543,6 +544,7 @@ def build_room_objects(rooms: list[RoomSummary]) -> list[RoomObjectResponse]:
                 "floor_y_ratio": room.floor_y_ratio,
                 "floor_width_ratio": room.floor_width_ratio,
                 "floor_height_ratio": room.floor_height_ratio,
+                "floor_polygon_ratios": room.floor_polygon_ratios,
                 "stair_direction": room.stair_direction,
                 "walls": room.walls,
                 "doors": room.doors,
@@ -614,6 +616,7 @@ def deserialize_rooms(items: list[RoomUpdateRequest]) -> list[RoomSummary]:
             floor_y_ratio=item.floor_y_ratio,
             floor_width_ratio=item.floor_width_ratio,
             floor_height_ratio=item.floor_height_ratio,
+            floor_polygon_ratios=[list(point) for point in item.floor_polygon_ratios],
             stair_direction=item.stair_direction,
             walls=list(item.walls),
             doors=list(item.doors),

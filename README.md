@@ -8,7 +8,7 @@ House Plan Toolset is a Python and FastAPI application for reviewing a residenti
 
 - Browse Neo4j parcels or analyze local parcel GeoJSON in a three-panel catalog, viewport, and inspector interface.
 - Edit the house footprint and organize rooms across the basement, first floor, and second floor.
-- Add, remove, move, and resize rooms; edit room name, type, width, and depth; and rotate constrained stair cores.
+- Add, remove, move, and resize rooms; switch between rectangular and polygonal footprints; add, remove, and drag polygon vertices; edit room name, type, width, and depth; and rotate constrained stair cores.
 - Add, remove, and position walls, doors, and windows. Wall thickness is rendered to scale, openings inherit their host-wall thickness, and engineering-style wall dimensions show length and thickness.
 - Design bathrooms, bedrooms, and general rooms with editable components such as vanities, showers, bathtubs, toilets, beds, storage, chairs, sofas, and tables.
 - Move, resize, remove, and rotate every interior component using Up, Right, Down, and Left directions. Components remain constrained inside the room.
@@ -79,6 +79,7 @@ See [README4LOADER.md](README4LOADER.md) for the complete loader and persistence
 Floor-plan rooms expose editable identity, geometry, and structure:
 
 - room name and room type
+- rectangle or polygon room shape with editable normalized vertices
 - physical width and depth
 - floor position and footprint
 - stair direction and constrained stair width
@@ -139,7 +140,7 @@ RDF is the source of truth. Cypher companions mirror the same URI base, class/pr
 - House: [House.rdf](resource/ontology/www_onto2ai-toolset_com/ontology/house/House.rdf) and [House.cypher](resource/ontology/www_onto2ai-toolset_com/ontology/house/House.cypher)
 - Interior design: [InteriorDesign.rdf](resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.rdf) and [InteriorDesign.cypher](resource/ontology/www_onto2ai-toolset_com/ontology/interior-design/InteriorDesign.cypher)
 
-Persisted `Room` properties include `wallLayoutJson`, `doorLayoutJson`, `windowLayoutJson`, and `interiorDesignLayoutJson` so the browser editor can restore saved room geometry and components.
+Persisted `Room` properties include `floorPolygonJson`, `wallLayoutJson`, `doorLayoutJson`, `windowLayoutJson`, and `interiorDesignLayoutJson` so the browser editor can restore polygon geometry, structure, and components. The interior-design canvas uses the same room polygon for its floor, wall edges, openings, fixture clipping, and placement limits. Rectangular placement ratios remain the backward-compatible room bounding box.
 
 ## Development and Validation
 
