@@ -35,8 +35,8 @@ def test_web_assets_are_revalidated_and_use_current_cache_versions() -> None:
     assert page_response.status_code == 200
     assert page_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
     assert javascript_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
-    assert "/static/css/styles.css?v=39" in page_response.text
-    assert "/static/js/app.js?v=66" in page_response.text
+    assert "/static/css/styles.css?v=43" in page_response.text
+    assert "/static/js/app.js?v=70" in page_response.text
 
 
 def test_sample_analysis_endpoint_returns_report_payload() -> None:
@@ -410,9 +410,11 @@ def test_floor_plan_room_dimensions_are_editable() -> None:
     assert "function applyRoomTypeValue" in javascript
     assert "function getRoomWallLength" in javascript
     assert "function buildFloorWallLengthLabel" in javascript
+    assert "function buildFloorArchitectureDimension" in javascript
     assert 'class="segment-length"' in javascript
-    assert 'class="room-wall-dimension-anchor"' in javascript
     assert 'class="room-wall-extension"' in javascript
+    assert 'class="room-wall-dimension-cap"' in javascript
+    assert 'class="room-wall-dimension-arrow"' in javascript
     assert "const totalInches" in javascript
     assert "const showDimension = !hasSelectedRoom || state.selectedId === room.id" in javascript
     assert "const dimensionOffset = 12 * inverseZoom" in javascript
@@ -427,8 +429,25 @@ def test_floor_plan_room_dimensions_are_editable() -> None:
     assert "function buildPolygonRoomBoundaryMarkup" in javascript
     assert "floor_polygon_ratios: getRoomPolygonRatios(room)" in javascript
     assert "function getPointCoordinates" in javascript
+    assert "const DESIGN_GRID_INCHES = 1" in javascript
+    assert "const DESIGN_GRID_MAJOR_INCHES = 12" in javascript
+    assert "function snapFloorPolygonToInchGrid" in javascript
+    assert "function snapRoomLayoutToInchGrid" in javascript
+    assert "function snapRoomGeometryToInchGrid" in javascript
+    assert "function snapInchesWithin" in javascript
+    assert 'floor-grid-major-${levelKey}' in javascript
+    assert "interior-floor-grid-major-line" in javascript
     assert "function getInteriorRoomPolygonRatios" in javascript
     assert "function buildInteriorPolygonBoundarySvg" in javascript
+    assert "function buildInteriorRectWallDimension" in javascript
+    assert "function buildInteriorWallDimensionMarkup" in javascript
+    assert 'class="interior-wall-dimension-line"' in javascript
+    assert 'class="interior-wall-dimension-cap"' in javascript
+    assert 'class="interior-wall-dimension-arrow"' in javascript
+    assert 'data-interior-room-dimension="${dimension}"' in javascript
+    assert "function buildInteriorRoomSizeEditor" in javascript
+    assert "function applyInteriorRoomDimensionField" in javascript
+    assert 'const dimension = kind === "walls"' in javascript
     assert "function fitFixtureToInteriorRoom" in javascript
     assert '<g clip-path="url(#${clipId})">${furniture}</g>' in javascript
     assert 'class="interior-floor-fill" points="${polygonPoints}"' in javascript

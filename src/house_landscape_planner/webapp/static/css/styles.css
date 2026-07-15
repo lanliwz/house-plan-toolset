@@ -1107,7 +1107,17 @@ input {
 .floor-grid-minor {
     fill: none;
     stroke: rgba(147, 201, 255, 0.12);
+    stroke-width: 0.5;
+}
+
+.floor-grid-major {
+    fill: none;
+    stroke: rgba(147, 201, 255, 0.3);
     stroke-width: 1;
+}
+
+.floor-grid-major-surface {
+    pointer-events: none;
 }
 
 .floor-virtual-cutout {
@@ -1224,7 +1234,8 @@ input {
 
 .room-wall-extension,
 .room-wall-dimension-line,
-.room-wall-dimension-anchor {
+.room-wall-dimension-cap,
+.room-wall-dimension-arrow {
     fill: none;
     stroke: #f2c86f;
     stroke-width: 1.5;
@@ -1235,8 +1246,14 @@ input {
     opacity: 0.9;
 }
 
-.room-wall-dimension-anchor {
-    stroke-width: 2.25;
+.room-wall-dimension-cap,
+.room-wall-dimension-arrow {
+    stroke-width: 2;
+}
+
+.room-wall-dimension-arrow {
+    stroke-linecap: square;
+    stroke-linejoin: miter;
 }
 
 .room-door {
@@ -1371,12 +1388,17 @@ input {
 }
 
 .interior-fixture-inspector,
-.interior-structure-inspector {
+.interior-structure-inspector,
+.interior-room-size-editor {
     margin-top: 14px;
     padding: 12px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--bg-panel-soft);
+}
+
+.interior-room-size-editor {
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
 }
 
 .interior-structure-inspector p {
@@ -1646,8 +1668,18 @@ input {
 
 .interior-floor-grid-line {
     fill: none;
-    stroke: rgba(20, 30, 35, 0.24);
+    stroke: rgba(20, 30, 35, 0.2);
+    stroke-width: 0.45;
+}
+
+.interior-floor-grid-major-line {
+    fill: none;
+    stroke: rgba(20, 30, 35, 0.4);
     stroke-width: 1;
+}
+
+.interior-floor-grid-major {
+    opacity: 0.38;
 }
 
 .interior-floor-outline {
@@ -1779,6 +1811,43 @@ input {
     stroke-width: 3px;
     stroke-linejoin: round;
     pointer-events: none;
+}
+
+.interior-wall-dimension-group {
+    pointer-events: none;
+    color: var(--text-muted);
+}
+
+.interior-wall-dimension-line,
+.interior-wall-dimension-extension,
+.interior-wall-dimension-cap,
+.interior-wall-dimension-arrow {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 0.8;
+    vector-effect: non-scaling-stroke;
+}
+
+.interior-wall-dimension-cap {
+    stroke-width: 1.2;
+}
+
+.interior-wall-dimension-arrow {
+    stroke-width: 1.2;
+    stroke-linecap: square;
+    stroke-linejoin: miter;
+}
+
+.interior-wall-dimension-extension {
+    opacity: 0.58;
+}
+
+.interior-wall-dimension-group.selected {
+    color: var(--accent);
+}
+
+.interior-wall-dimension-group.selected .interior-wall-dimension {
+    fill: var(--accent);
 }
 
 .interior-light {
