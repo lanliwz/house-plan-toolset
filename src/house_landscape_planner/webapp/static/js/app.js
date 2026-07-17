@@ -1283,6 +1283,7 @@ const INTERIOR_COMPONENT_TYPES = {
     table: { label: "Table", widthInches: 48, depthInches: 30, rooms: ["general"] },
     storage: { label: "Storage", widthInches: 60, depthInches: 18, rooms: ["general"] },
 };
+const FIXTURE_SIZE_GRID_INCHES = 0.5;
 const FIXTURE_DIRECTION_OPTIONS = [
     { value: 0, label: "Up" },
     { value: 90, label: "Right" },
@@ -1458,11 +1459,12 @@ function buildInteriorWallThicknessField(segment) {
 }
 
 function buildBathroomFixtureNumberField(label, field, value, minimum) {
+    const step = field === "width_inches" || field === "depth_inches" ? FIXTURE_SIZE_GRID_INCHES : 1;
     return `
         <label>
             <span>${escapeHtml(label)}</span>
             <span class="interior-fixture-input">
-                <input type="number" min="${minimum}" step="1" value="${escapeHtml(String(roundValue(value, 1)))}" data-fixture-field="${field}">
+                <input type="number" min="${minimum}" step="${step}" value="${escapeHtml(String(roundValue(value, 1)))}" data-fixture-field="${field}">
                 <span>in</span>
             </span>
         </label>
@@ -1489,12 +1491,25 @@ function buildDefaultInteriorComponents(item) {
             createBathroomFixture("storage", Math.max(6, roomWidthInches - 66), Math.max(6, roomDepthInches - 24), "room-storage"),
         ];
     }
-    return [
+    const fixtures = [
         createBathroomFixture("bathtub", 6, 6, "bath-bathtub"),
         createBathroomFixture("shower", Math.max(6, roomWidthInches - 36), 6, "bath-shower"),
         createBathroomFixture("vanity", Math.max(6, roomWidthInches - 54), Math.max(6, roomDepthInches - 28), "bath-vanity"),
         createBathroomFixture("toilet", 6, Math.max(6, roomDepthInches - 54), "bath-toilet"),
     ];
+    if (isMasterBathInteriorDesign(item)) {
+        const shower = fixtures.find((fixture) => fixture.id === "bath-shower");
+        if (shower) {
+            shower.width_inches = 47.5;
+            shower.depth_inches = 34.5;
+        }
+        const vanity = fixtures.find((fixture) => fixture.id === "bath-vanity");
+        if (vanity) {
+            vanity.width_inches = 54;
+            vanity.depth_inches = 22;
+        }
+    }
+    return fixtures;
 }
 
 function createBathroomFixture(type, xInches = 6, yInches = 6, id = "") {
@@ -1542,14 +1557,30 @@ function normalizeBathroomFixtureLayout(value, item) {
             xInches = Math.max(0, roomDimensions.width - widthInches);
             yInches = Math.max(0, roomDimensions.height - depthInches);
         }
-        if (id === "bath-shower" && type === "shower" && widthInches === 51.3 && depthInches === 29.9) {
+        const isKnownMasterBathShower = isMasterBathInteriorDesign(item)
+            && id === "bath-shower"
+            && type === "shower"
+            && ((widthInches === 50 && depthInches === 30)
+                || (widthInches === 51.3 && depthInches === 29.9));
+        if (isKnownMasterBathShower) {
+            widthInches = 47.5;
+            depthInches = 34.5;
+        } else if (id === "bath-shower" && type === "shower" && widthInches === 51.3 && depthInches === 29.9) {
             widthInches = 30;
             depthInches = 30;
             xInches = Math.min(6, Math.max(0, roomDimensions.width - widthInches));
             yInches = Math.max(0, roomDimensions.height - depthInches);
         }
-        widthInches = snapInchesWithin(widthInches, 12, roomDimensions.width);
-        depthInches = snapInchesWithin(depthInches, 12, roomDimensions.height);
+        if (isMasterBathInteriorDesign(item)
+            && id === "bath-vanity"
+            && type === "vanity"
+            && widthInches === 54
+            && depthInches === 30) {
+            widthInches = 54;
+            depthInches = 22;
+        }
+        widthInches = snapFixtureSizeInchesWithin(widthInches, 12, roomDimensions.width);
+        depthInches = snapFixtureSizeInchesWithin(depthInches, 12, roomDimensions.height);
         const normalized = {
             id,
             type,
@@ -1562,6 +1593,10 @@ function normalizeBathroomFixtureLayout(value, item) {
         };
         return fitFixtureToInteriorRoom(normalized, item);
     });
+}
+
+function isMasterBathInteriorDesign(item) {
+    return String(item?.properties?.room_label || "").trim().toLowerCase() === "master bath";
 }
 
 function getBathroomFixtures(item) {
@@ -1829,12 +1864,28 @@ function buildInteriorBoundarySvg(item, x, y, width, height, roomPolygon = []) {
         const dimension = kind === "walls"
             ? buildInteriorRectWallDimension(item, sourceRoom, segment, x, y, width, height, selected)
             : "";
+        const openingStart = {
+            x: rect.x + (rect.width >= rect.height ? 0 : rect.width / 2),
+            y: rect.y + (rect.width >= rect.height ? rect.height / 2 : 0),
+        };
+        const openingEnd = {
+            x: rect.x + (rect.width >= rect.height ? rect.width : rect.width / 2),
+            y: rect.y + (rect.width >= rect.height ? rect.height / 2 : rect.height),
+        };
+        const openingLabel = kind === "walls"
+            ? ""
+            : buildInteriorOpeningLabel(typeClass, openingStart, openingEnd);
+        const doorSwing = kind === "doors"
+            ? buildInteriorDoorSwing(openingStart, openingEnd, getInteriorRectInwardNormal(segment.edge))
+            : "";
         return `
             <rect class="interior-boundary-segment interior-${typeClass} ${selected ? "selected" : ""}"
                 x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"
                 data-interior-segment-kind="${kind}" data-interior-segment-index="${index}"
                 role="button" tabindex="0" aria-label="${titleCase(typeClass)} ${index + 1}"></rect>
             ${dimension}
+            ${doorSwing}
+            ${openingLabel}
         `;
     }).join("")).join("");
 }
@@ -1860,6 +1911,10 @@ function buildInteriorPolygonBoundarySvg(item, sourceRoom, roomPolygon) {
         const dimension = kind === "walls"
             ? buildInteriorPolygonWallDimension(sourceRoom, segment, edgeStart, edgeEnd, start, end, strokeWidth, selected)
             : "";
+        const openingLabel = kind === "walls" ? "" : buildInteriorOpeningLabel(typeClass, start, end);
+        const doorSwing = kind === "doors"
+            ? buildInteriorDoorSwing(start, end, getInteriorPolygonInwardNormal(roomPolygon, start, end))
+            : "";
         return `
             <line class="interior-boundary-segment interior-${typeClass} ${selected ? "selected" : ""}"
                 x1="${start.x.toFixed(1)}" y1="${start.y.toFixed(1)}" x2="${end.x.toFixed(1)}" y2="${end.y.toFixed(1)}"
@@ -1867,8 +1922,73 @@ function buildInteriorPolygonBoundarySvg(item, sourceRoom, roomPolygon) {
                 data-interior-segment-kind="${kind}" data-interior-segment-index="${index}"
                 role="button" tabindex="0" aria-label="${titleCase(typeClass)} ${index + 1}"></line>
             ${dimension}
+            ${doorSwing}
+            ${openingLabel}
         `;
     }).join("")).join("");
+}
+
+function buildInteriorOpeningLabel(typeClass, start, end) {
+    const label = typeClass === "door" ? "Door" : "Window";
+    const midpoint = {
+        x: (start.x + end.x) / 2,
+        y: (start.y + end.y) / 2,
+    };
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    if (angle > 90 || angle < -90) {
+        angle += 180;
+    }
+    return `
+        <text class="interior-opening-label interior-${typeClass}-label" text-anchor="middle"
+            transform="translate(${midpoint.x.toFixed(2)} ${midpoint.y.toFixed(2)}) rotate(${angle.toFixed(2)}) translate(0 -4)"
+            aria-hidden="true">${label}</text>
+    `;
+}
+
+function getInteriorRectInwardNormal(edge) {
+    const normals = {
+        top: { x: 0, y: 1 },
+        right: { x: -1, y: 0 },
+        bottom: { x: 0, y: -1 },
+        left: { x: 1, y: 0 },
+    };
+    return normals[String(edge || "top")] || normals.top;
+}
+
+function getInteriorPolygonInwardNormal(roomPolygon, start, end) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.max(Math.hypot(dx, dy), 1);
+    const candidate = { x: -dy / length, y: dx / length };
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const centroid = getScreenPolygonCentroid(roomPolygon);
+    const pointsInward = (candidate.x * (centroid.x - midpoint.x)) + (candidate.y * (centroid.y - midpoint.y)) >= 0;
+    return pointsInward ? candidate : { x: -candidate.x, y: -candidate.y };
+}
+
+function buildInteriorDoorSwing(start, end, inwardNormal) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.max(Math.hypot(dx, dy), 1);
+    const tangent = { x: dx / length, y: dy / length };
+    const normalLength = Math.max(Math.hypot(inwardNormal.x, inwardNormal.y), 1);
+    const normal = { x: inwardNormal.x / normalLength, y: inwardNormal.y / normalLength };
+    const openEnd = {
+        x: start.x + (normal.x * length),
+        y: start.y + (normal.y * length),
+    };
+    const sweep = ((tangent.x * normal.y) - (tangent.y * normal.x)) >= 0 ? 1 : 0;
+    return `
+        <g class="interior-door-swing" aria-hidden="true">
+            <line class="interior-door-leaf" x1="${start.x.toFixed(2)}" y1="${start.y.toFixed(2)}"
+                x2="${openEnd.x.toFixed(2)}" y2="${openEnd.y.toFixed(2)}"></line>
+            <path class="interior-door-swing-arc"
+                d="M ${end.x.toFixed(2)} ${end.y.toFixed(2)} A ${length.toFixed(2)} ${length.toFixed(2)} 0 0 ${sweep} ${openEnd.x.toFixed(2)} ${openEnd.y.toFixed(2)}"></path>
+            <circle class="interior-door-hinge" cx="${start.x.toFixed(2)}" cy="${start.y.toFixed(2)}" r="2"></circle>
+        </g>
+    `;
 }
 
 function buildInteriorRectWallDimension(item, sourceRoom, segment, x, y, width, height, selected) {
@@ -3557,6 +3677,16 @@ function snapInchesWithin(value, minimum, maximum) {
         return clamp(snapInches(value), Number(minimum || 0), Number(maximum || 0));
     }
     return clamp(snapInches(value), lower, upper);
+}
+
+function snapFixtureSizeInchesWithin(value, minimum, maximum) {
+    const lower = Math.ceil(Number(minimum || 0) / FIXTURE_SIZE_GRID_INCHES) * FIXTURE_SIZE_GRID_INCHES;
+    const upper = Math.floor(Number(maximum || 0) / FIXTURE_SIZE_GRID_INCHES) * FIXTURE_SIZE_GRID_INCHES;
+    const snapped = Math.round(Number(value || 0) / FIXTURE_SIZE_GRID_INCHES) * FIXTURE_SIZE_GRID_INCHES;
+    if (upper < lower) {
+        return clamp(snapped, Number(minimum || 0), Number(maximum || 0));
+    }
+    return clamp(snapped, lower, upper);
 }
 
 function getHouseDimensionsInches() {
@@ -5665,10 +5795,10 @@ function applyBathroomFixtureField(field, rawValue) {
 
     const value = Number(rawValue || 0);
     if (field === "width_inches") {
-        fixture.width_inches = snapInchesWithin(value, 12, Math.max(12, roomWidthInches));
+        fixture.width_inches = snapFixtureSizeInchesWithin(value, 12, Math.max(12, roomWidthInches));
         fixture.x_inches = snapInchesWithin(fixture.x_inches, 0, Math.max(0, roomWidthInches - fixture.width_inches));
     } else if (field === "depth_inches") {
-        fixture.depth_inches = snapInchesWithin(value, 12, Math.max(12, roomDepthInches));
+        fixture.depth_inches = snapFixtureSizeInchesWithin(value, 12, Math.max(12, roomDepthInches));
         fixture.y_inches = snapInchesWithin(fixture.y_inches, 0, Math.max(0, roomDepthInches - fixture.depth_inches));
     } else if (field === "x_inches") {
         fixture.x_inches = snapInchesWithin(value, 0, Math.max(0, roomWidthInches - fixture.width_inches));
@@ -5680,8 +5810,8 @@ function applyBathroomFixtureField(field, rawValue) {
         if ((currentDirection % 180) !== (nextDirection % 180)) {
             const nextWidth = fixture.depth_inches;
             const nextDepth = fixture.width_inches;
-            fixture.width_inches = snapInchesWithin(nextWidth, 12, Math.max(12, roomWidthInches));
-            fixture.depth_inches = snapInchesWithin(nextDepth, 12, Math.max(12, roomDepthInches));
+            fixture.width_inches = snapFixtureSizeInchesWithin(nextWidth, 12, Math.max(12, roomWidthInches));
+            fixture.depth_inches = snapFixtureSizeInchesWithin(nextDepth, 12, Math.max(12, roomDepthInches));
         }
         fixture.direction_degrees = nextDirection;
         fixture.x_inches = snapInchesWithin(fixture.x_inches, 0, Math.max(0, roomWidthInches - fixture.width_inches));

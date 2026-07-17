@@ -4,6 +4,8 @@
 
 House Plan Toolset is a Python and FastAPI application for reviewing a residential parcel, editing its house and floor plans, designing room interiors, and persisting the result as an ontology-aligned Neo4j graph.
 
+See the [User Guide](docs/user-guide.md) for the complete browser workflow and step-by-step instructions for downloading a compatible parcel GeoJSON file from Suffolk County GIS.
+
 ## Key Capabilities
 
 - Browse Neo4j parcels or analyze local parcel GeoJSON in a three-panel catalog, viewport, and inspector interface.

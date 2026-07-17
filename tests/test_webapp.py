@@ -35,8 +35,8 @@ def test_web_assets_are_revalidated_and_use_current_cache_versions() -> None:
     assert page_response.status_code == 200
     assert page_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
     assert javascript_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
-    assert "/static/css/styles.css?v=43" in page_response.text
-    assert "/static/js/app.js?v=70" in page_response.text
+    assert "/static/css/styles.css?v=45" in page_response.text
+    assert "/static/js/app.js?v=74" in page_response.text
 
 
 def test_sample_analysis_endpoint_returns_report_payload() -> None:
@@ -371,6 +371,13 @@ def test_interior_design_assets_include_editable_bathroom_and_bedroom_components
     javascript = response.text
     assert "const INTERIOR_COMPONENT_TYPES" in javascript
     assert 'shower: { label: "Shower", widthInches: 30, depthInches: 30' in javascript
+    assert "const FIXTURE_SIZE_GRID_INCHES = 0.5" in javascript
+    assert "function snapFixtureSizeInchesWithin" in javascript
+    assert "function isMasterBathInteriorDesign" in javascript
+    assert "shower.width_inches = 47.5" in javascript
+    assert "shower.depth_inches = 34.5" in javascript
+    assert "vanity.width_inches = 54" in javascript
+    assert "vanity.depth_inches = 22" in javascript
     assert 'bathtub: { label: "Bathtub", widthInches: 60, depthInches: 36' in javascript
     assert 'bed: { label: "Bed", widthInches: 60, depthInches: 80' in javascript
     assert 'chair: { label: "Chair", widthInches: 30, depthInches: 30' in javascript
@@ -393,6 +400,12 @@ def test_interior_design_assets_include_editable_bathroom_and_bedroom_components
     assert 'data-interior-segment-add="doors"' in javascript
     assert 'data-interior-segment-add="windows"' in javascript
     assert "buildInteriorBoundarySvg" in javascript
+    assert "function buildInteriorOpeningLabel" in javascript
+    assert 'class="interior-opening-label interior-${typeClass}-label"' in javascript
+    assert "function buildInteriorDoorSwing" in javascript
+    assert "function getInteriorPolygonInwardNormal" in javascript
+    assert 'class="interior-door-swing"' in javascript
+    assert 'class="interior-door-swing-arc"' in javascript
     assert "applyInteriorSegmentField" in javascript
 
 
@@ -466,5 +479,7 @@ def test_floor_plan_room_dimensions_are_editable() -> None:
     assert "function findOpeningHostWall" in javascript
     assert "buildOpeningRectFromPlacement(segment, x, y, width, height, sourceRoom, 0.25)" in javascript
     assert 'id === "bath-bathtub" && type === "bathtub" && widthInches === 36 && depthInches === 72' in javascript
-    assert 'id === "bath-shower" && type === "shower" && widthInches === 51.3 && depthInches === 29.9' in javascript
+    assert "const isKnownMasterBathShower = isMasterBathInteriorDesign(item)" in javascript
+    assert "widthInches = 47.5" in javascript
+    assert "depthInches = 34.5" in javascript
     assert "xInches = Math.max(0, roomDimensions.width - widthInches)" in javascript

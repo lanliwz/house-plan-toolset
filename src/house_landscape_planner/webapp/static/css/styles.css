@@ -1779,10 +1779,37 @@ input {
 }
 
 .interior-door {
-    fill: rgba(242, 200, 121, 0.18);
+    fill: rgba(242, 200, 121, 0.08);
     stroke: rgba(242, 200, 121, 1);
-    stroke-width: 2;
-    stroke-dasharray: 7 3;
+    stroke-width: 1.5;
+}
+
+.interior-door-swing {
+    color: #f2c879;
+    pointer-events: none;
+}
+
+.interior-door-leaf,
+.interior-door-swing-arc {
+    fill: none;
+    stroke: currentColor;
+    vector-effect: non-scaling-stroke;
+}
+
+.interior-door-leaf {
+    stroke-width: 2.5;
+}
+
+.interior-door-swing-arc {
+    stroke-width: 1.25;
+    stroke-dasharray: 3 2;
+}
+
+.interior-door-hinge {
+    fill: currentColor;
+    stroke: #10202a;
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
 }
 
 .interior-window {
@@ -1790,6 +1817,27 @@ input {
     stroke: rgba(159, 226, 216, 1);
     stroke-width: 2;
     stroke-dasharray: 3 2;
+}
+
+.interior-opening-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    paint-order: stroke fill;
+    stroke: #10202a;
+    stroke-width: 3px;
+    stroke-linejoin: round;
+    pointer-events: none;
+    user-select: none;
+}
+
+.interior-door-label {
+    fill: #f2c879;
+}
+
+.interior-window-label {
+    fill: #9fe2d8;
 }
 
 .interior-boundary-segment.selected {
