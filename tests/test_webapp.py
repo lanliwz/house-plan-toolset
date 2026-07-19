@@ -36,7 +36,7 @@ def test_web_assets_are_revalidated_and_use_current_cache_versions() -> None:
     assert page_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
     assert javascript_response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
     assert "/static/css/styles.css?v=45" in page_response.text
-    assert "/static/js/app.js?v=74" in page_response.text
+    assert "/static/js/app.js?v=78" in page_response.text
 
 
 def test_sample_analysis_endpoint_returns_report_payload() -> None:
@@ -417,7 +417,10 @@ def test_floor_plan_room_dimensions_are_editable() -> None:
     assert 'data-property-editor="room-dimension"' in javascript
     assert 'data-room-dimension="${dimension}"' in javascript
     assert "function applyRoomDimensionValue" in javascript
-    assert 'item.kind === "room" && key === "height" ? "Depth"' in javascript
+    assert 'const isCompactStorage = roomType === "storage"' in javascript
+    assert 'getRoomDimensionWallAllowance(room, "width")' in javascript
+    assert '? "Interior Width"' in javascript
+    assert '? "Interior Depth"' in javascript
     assert 'data-property-editor="room-type"' in javascript
     assert "const ROOM_TYPE_OPTIONS" in javascript
     assert "function applyRoomTypeValue" in javascript

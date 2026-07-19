@@ -1424,6 +1424,8 @@ function buildInteriorStructureInspector(item) {
                 ${buildInteriorSegmentNumberField("Start", "start_ratio", segment.start_ratio)}
                 ${buildInteriorSegmentNumberField("End", "end_ratio", segment.end_ratio)}
                 ${kind === "walls" ? buildInteriorWallThicknessField(segment) : ""}
+                ${kind === "doors" ? buildInteriorDoorTypeField(segment) : ""}
+                ${kind === "doors" ? buildInteriorDoorSwingDirectionField(segment) : ""}
                 <div class="interior-segment-length">
                     <span>Span</span>
                     <strong>${Math.max(0, Math.round((Number(segment.end_ratio) - Number(segment.start_ratio)) * 100))}%</strong>
@@ -1454,6 +1456,30 @@ function buildInteriorWallThicknessField(segment) {
                     value="${formatNumber(getWallThicknessInches(segment))}" data-interior-segment-field="thickness_inches">
                 <span>in</span>
             </span>
+        </label>
+    `;
+}
+
+function buildInteriorDoorTypeField(segment) {
+    return `
+        <label>
+            <span>Door type</span>
+            <select data-interior-segment-field="door_type" aria-label="Door type">
+                <option value="single" ${getDoorType(segment) === "single" ? "selected" : ""}>Single Door</option>
+                <option value="double" ${getDoorType(segment) === "double" ? "selected" : ""}>Double Door</option>
+            </select>
+        </label>
+    `;
+}
+
+function buildInteriorDoorSwingDirectionField(segment) {
+    return `
+        <label>
+            <span>Swing direction</span>
+            <select data-interior-segment-field="swing_direction" aria-label="Door swing direction">
+                <option value="inward" ${getDoorSwingDirection(segment) === "inward" ? "selected" : ""}>Inward</option>
+                <option value="outward" ${getDoorSwingDirection(segment) === "outward" ? "selected" : ""}>Outward</option>
+            </select>
         </label>
     `;
 }
@@ -1861,6 +1887,9 @@ function buildInteriorBoundarySvg(item, x, y, width, height, roomPolygon = []) {
         }
         const selected = state.selectedInteriorSegmentKind === kind && state.selectedInteriorSegmentIndex === index;
         const typeClass = kind === "walls" ? "wall" : kind === "doors" ? "door" : "window";
+        const structureLabel = kind === "doors" && getDoorType(segment) === "double"
+            ? "Double Door"
+            : titleCase(typeClass);
         const dimension = kind === "walls"
             ? buildInteriorRectWallDimension(item, sourceRoom, segment, x, y, width, height, selected)
             : "";
@@ -1874,15 +1903,21 @@ function buildInteriorBoundarySvg(item, x, y, width, height, roomPolygon = []) {
         };
         const openingLabel = kind === "walls"
             ? ""
-            : buildInteriorOpeningLabel(typeClass, openingStart, openingEnd);
+            : buildInteriorOpeningLabel(typeClass, openingStart, openingEnd, segment);
         const doorSwing = kind === "doors"
-            ? buildInteriorDoorSwing(openingStart, openingEnd, getInteriorRectInwardNormal(segment.edge))
+            ? buildInteriorDoorSwing(
+                openingStart,
+                openingEnd,
+                getInteriorRectInwardNormal(segment.edge),
+                getDoorType(segment),
+                getDoorSwingDirection(segment),
+            )
             : "";
         return `
             <rect class="interior-boundary-segment interior-${typeClass} ${selected ? "selected" : ""}"
                 x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"
                 data-interior-segment-kind="${kind}" data-interior-segment-index="${index}"
-                role="button" tabindex="0" aria-label="${titleCase(typeClass)} ${index + 1}"></rect>
+                role="button" tabindex="0" aria-label="${structureLabel} ${index + 1}"></rect>
             ${dimension}
             ${doorSwing}
             ${openingLabel}
@@ -1908,19 +1943,28 @@ function buildInteriorPolygonBoundarySvg(item, sourceRoom, roomPolygon) {
         const strokeWidth = Math.max(kind === "walls" ? 2 : 3, getWallThicknessInches(hostWall) * pixelsPerInch);
         const selected = state.selectedInteriorSegmentKind === kind && state.selectedInteriorSegmentIndex === index;
         const typeClass = kind === "walls" ? "wall" : kind === "doors" ? "door" : "window";
+        const structureLabel = kind === "doors" && getDoorType(segment) === "double"
+            ? "Double Door"
+            : titleCase(typeClass);
         const dimension = kind === "walls"
             ? buildInteriorPolygonWallDimension(sourceRoom, segment, edgeStart, edgeEnd, start, end, strokeWidth, selected)
             : "";
-        const openingLabel = kind === "walls" ? "" : buildInteriorOpeningLabel(typeClass, start, end);
+        const openingLabel = kind === "walls" ? "" : buildInteriorOpeningLabel(typeClass, start, end, segment);
         const doorSwing = kind === "doors"
-            ? buildInteriorDoorSwing(start, end, getInteriorPolygonInwardNormal(roomPolygon, start, end))
+            ? buildInteriorDoorSwing(
+                start,
+                end,
+                getInteriorPolygonInwardNormal(roomPolygon, start, end),
+                getDoorType(segment),
+                getDoorSwingDirection(segment),
+            )
             : "";
         return `
             <line class="interior-boundary-segment interior-${typeClass} ${selected ? "selected" : ""}"
                 x1="${start.x.toFixed(1)}" y1="${start.y.toFixed(1)}" x2="${end.x.toFixed(1)}" y2="${end.y.toFixed(1)}"
                 style="stroke-width:${strokeWidth.toFixed(2)}px"
                 data-interior-segment-kind="${kind}" data-interior-segment-index="${index}"
-                role="button" tabindex="0" aria-label="${titleCase(typeClass)} ${index + 1}"></line>
+                role="button" tabindex="0" aria-label="${structureLabel} ${index + 1}"></line>
             ${dimension}
             ${doorSwing}
             ${openingLabel}
@@ -1928,8 +1972,10 @@ function buildInteriorPolygonBoundarySvg(item, sourceRoom, roomPolygon) {
     }).join("")).join("");
 }
 
-function buildInteriorOpeningLabel(typeClass, start, end) {
-    const label = typeClass === "door" ? "Door" : "Window";
+function buildInteriorOpeningLabel(typeClass, start, end, opening = null) {
+    const label = typeClass === "door"
+        ? (getDoorType(opening) === "double" ? "Double Door" : "Door")
+        : "Window";
     const midpoint = {
         x: (start.x + end.x) / 2,
         y: (start.y + end.y) / 2,
@@ -1968,13 +2014,48 @@ function getInteriorPolygonInwardNormal(roomPolygon, start, end) {
     return pointsInward ? candidate : { x: -candidate.x, y: -candidate.y };
 }
 
-function buildInteriorDoorSwing(start, end, inwardNormal) {
+function buildInteriorDoorSwing(start, end, inwardNormal, doorType = "single", swingDirection = "inward") {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const length = Math.max(Math.hypot(dx, dy), 1);
     const tangent = { x: dx / length, y: dy / length };
     const normalLength = Math.max(Math.hypot(inwardNormal.x, inwardNormal.y), 1);
-    const normal = { x: inwardNormal.x / normalLength, y: inwardNormal.y / normalLength };
+    const directionMultiplier = swingDirection === "outward" ? -1 : 1;
+    const normal = {
+        x: (inwardNormal.x / normalLength) * directionMultiplier,
+        y: (inwardNormal.y / normalLength) * directionMultiplier,
+    };
+    if (doorType === "double") {
+        const halfLength = length / 2;
+        const midpoint = {
+            x: (start.x + end.x) / 2,
+            y: (start.y + end.y) / 2,
+        };
+        const startOpenEnd = {
+            x: start.x + (normal.x * halfLength),
+            y: start.y + (normal.y * halfLength),
+        };
+        const endOpenEnd = {
+            x: end.x + (normal.x * halfLength),
+            y: end.y + (normal.y * halfLength),
+        };
+        const startSweep = ((tangent.x * normal.y) - (tangent.y * normal.x)) >= 0 ? 1 : 0;
+        const endSweep = (((-tangent.x) * normal.y) - ((-tangent.y) * normal.x)) >= 0 ? 1 : 0;
+        return `
+            <g class="interior-door-swing interior-double-door-swing" aria-hidden="true">
+                <line class="interior-door-leaf" x1="${start.x.toFixed(2)}" y1="${start.y.toFixed(2)}"
+                    x2="${startOpenEnd.x.toFixed(2)}" y2="${startOpenEnd.y.toFixed(2)}"></line>
+                <line class="interior-door-leaf" x1="${end.x.toFixed(2)}" y1="${end.y.toFixed(2)}"
+                    x2="${endOpenEnd.x.toFixed(2)}" y2="${endOpenEnd.y.toFixed(2)}"></line>
+                <path class="interior-door-swing-arc"
+                    d="M ${midpoint.x.toFixed(2)} ${midpoint.y.toFixed(2)} A ${halfLength.toFixed(2)} ${halfLength.toFixed(2)} 0 0 ${startSweep} ${startOpenEnd.x.toFixed(2)} ${startOpenEnd.y.toFixed(2)}"></path>
+                <path class="interior-door-swing-arc"
+                    d="M ${midpoint.x.toFixed(2)} ${midpoint.y.toFixed(2)} A ${halfLength.toFixed(2)} ${halfLength.toFixed(2)} 0 0 ${endSweep} ${endOpenEnd.x.toFixed(2)} ${endOpenEnd.y.toFixed(2)}"></path>
+                <circle class="interior-door-hinge" cx="${start.x.toFixed(2)}" cy="${start.y.toFixed(2)}" r="2"></circle>
+                <circle class="interior-door-hinge" cx="${end.x.toFixed(2)}" cy="${end.y.toFixed(2)}" r="2"></circle>
+            </g>
+        `;
+    }
     const openEnd = {
         x: start.x + (normal.x * length),
         y: start.y + (normal.y * length),
@@ -2565,10 +2646,20 @@ function buildPolygonRoomSegmentLine(room, segment, points, shellBox, className)
     const dimension = className === "room-wall-segment-line" && state.selectedKind === "room" && state.selectedId === room.id
         ? buildPolygonWallDimension(room, segment, edgeStart, edgeEnd, start, end, shellBox, thicknessInches)
         : "";
+    const doorSwing = className === "room-door-line"
+        ? buildInteriorDoorSwing(
+            start,
+            end,
+            getInteriorPolygonInwardNormal(points, start, end),
+            getDoorType(segment),
+            getDoorSwingDirection(segment),
+        )
+        : "";
     return `
         <line class="${className}" x1="${start.x.toFixed(3)}" y1="${start.y.toFixed(3)}"
             x2="${end.x.toFixed(3)}" y2="${end.y.toFixed(3)}" style="stroke-width:${strokeWidth.toFixed(2)}px"></line>
         ${dimension}
+        ${doorSwing}
     `;
 }
 
@@ -2922,7 +3013,28 @@ function buildOpeningSegmentMarkup(item, x, y, width, height, className, room) {
     if (!rect) {
         return "";
     }
-    return `<rect class="${className}" x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"></rect>`;
+    const isHorizontal = rect.width >= rect.height;
+    const start = {
+        x: rect.x + (isHorizontal ? 0 : rect.width / 2),
+        y: rect.y + (isHorizontal ? rect.height / 2 : 0),
+    };
+    const end = {
+        x: rect.x + (isHorizontal ? rect.width : rect.width / 2),
+        y: rect.y + (isHorizontal ? rect.height / 2 : rect.height),
+    };
+    const doorSwing = className === "room-door"
+        ? buildInteriorDoorSwing(
+            start,
+            end,
+            getInteriorRectInwardNormal(item.edge),
+            getDoorType(item),
+            getDoorSwingDirection(item),
+        )
+        : "";
+    return `
+        <rect class="${className}" x="${rect.x.toFixed(1)}" y="${rect.y.toFixed(1)}" width="${rect.width.toFixed(1)}" height="${rect.height.toFixed(1)}"></rect>
+        ${doorSwing}
+    `;
 }
 
 function buildOpeningRectFromPlacement(item, x, y, width, height, room = null, minimumThickness = 1) {
@@ -2981,8 +3093,8 @@ function buildWallRectFromPlacement(room, wall, x, y, width, height, minimumThic
     const start = clamp(Number(wall?.start_ratio ?? 0), 0, 1);
     const end = clamp(Number(wall?.end_ratio ?? 1), 0, 1);
     const linearUnit = String(room?.properties?.linear_unit || "feet");
-    const roomWidthInches = Math.max(convertRoomLengthToInches(Number(room?.properties?.width || 0), linearUnit), 0.01);
-    const roomHeightInches = Math.max(convertRoomLengthToInches(Number(room?.properties?.height || 0), linearUnit), 0.01);
+    const roomWidthInches = Math.max(convertRoomLengthToInches(getRoomOuterDimension(room, "width"), linearUnit), 0.01);
+    const roomHeightInches = Math.max(convertRoomLengthToInches(getRoomOuterDimension(room, "height"), linearUnit), 0.01);
     const wallThicknessInches = getWallThicknessInches(wall);
     const thicknessX = Math.max((width / roomWidthInches) * wallThicknessInches, minimumThickness);
     const thicknessY = Math.max((height / roomHeightInches) * wallThicknessInches, minimumThickness);
@@ -3456,7 +3568,9 @@ function getRoomResizeLimits(room) {
     const house = state.assessment?.objects?.housePlan?.properties || {};
     const houseWidth = Math.max(Number(house.width || 0), 1);
     const houseHeight = Math.max(Number(house.height || 0), 1);
-    const isStair = String(room?.properties?.room_type || "").toLowerCase() === "stair";
+    const roomType = String(room?.properties?.room_type || "").toLowerCase();
+    const isStair = roomType === "stair";
+    const isCompactStorage = roomType === "storage" || String(room?.label || "").toLowerCase().includes("closet");
     const direction = String(room?.properties?.stair_direction || "up");
 
     let minWidth = defaultMin;
@@ -3464,7 +3578,16 @@ function getRoomResizeLimits(room) {
     let maxWidthRatio = maxBound;
     let maxHeightRatio = maxBound;
 
-    if (isStair) {
+    if (isCompactStorage) {
+        minWidth = Math.min(
+            maxBound,
+            (1.5 + getRoomDimensionWallAllowance(room, "width")) / houseWidth,
+        );
+        minHeight = Math.min(
+            maxBound,
+            (1.5 + getRoomDimensionWallAllowance(room, "height")) / houseHeight,
+        );
+    } else if (isStair) {
         if (direction === "up" || direction === "down") {
             minWidth = Math.min(maxBound, 3 / houseWidth);
             maxWidthRatio = Math.min(maxBound, 6 / houseWidth);
@@ -4237,7 +4360,11 @@ function renderProperties(item) {
 }
 
 function renderPropertyEntry(item, key, value, properties) {
-    const propertyLabel = item.kind === "room" && key === "height" ? "Depth" : formatPropertyLabel(key);
+    const propertyLabel = item.kind === "room" && key === "width"
+        ? "Interior Width"
+        : item.kind === "room" && key === "height"
+            ? "Interior Depth"
+            : formatPropertyLabel(key);
     const label = escapeHtml(propertyLabel);
     if (item.kind === "room" && (key === "width" || key === "height")) {
         return `<dt>${label}</dt><dd>${buildRoomDimensionEditor(item, key, value, properties)}</dd>`;
@@ -4851,16 +4978,33 @@ function syncRoomPhysicalProperties(room) {
     let widthRatio = Number(room.properties.floor_width_ratio || 0);
     let heightRatio = Number(room.properties.floor_height_ratio || 0);
 
-    room.properties.width = roundValue(houseWidth * widthRatio, 4);
-    room.properties.height = roundValue(houseHeight * heightRatio, 4);
+    const outerWidth = houseWidth * widthRatio;
+    const outerHeight = houseHeight * heightRatio;
+    room.properties.width = roundValue(Math.max(
+        outerWidth - getRoomDimensionWallAllowance(room, "width"),
+        0,
+    ), 4);
+    room.properties.height = roundValue(Math.max(
+        outerHeight - getRoomDimensionWallAllowance(room, "height"),
+        0,
+    ), 4);
     if (String(room.properties.room_type || "").toLowerCase() === "stair") {
         enforceStairConstraints(room, houseWidth, houseHeight);
         widthRatio = Number(room.properties.floor_width_ratio || 0);
         heightRatio = Number(room.properties.floor_height_ratio || 0);
     }
-    room.properties.area = roundValue(houseArea * (
-        polygon.length >= 3 ? computePolygonArea(polygon) : widthRatio * heightRatio
-    ), 2);
+    const areaUnit = String(room.properties.area_unit || "").toLowerCase();
+    const linearUnit = String(room.properties.linear_unit || "feet");
+    const interiorAreaSquareFeet = (
+        convertRoomLengthToInches(room.properties.width, linearUnit)
+        * convertRoomLengthToInches(room.properties.height, linearUnit)
+    ) / 144;
+    room.properties.area = roundValue(
+        polygon.length < 3 && (areaUnit.includes("sq ft") || areaUnit.includes("square feet"))
+            ? interiorAreaSquareFeet
+            : houseArea * (polygon.length >= 3 ? computePolygonArea(polygon) : widthRatio * heightRatio),
+        2,
+    );
     room.properties.walls = normalizeRoomWalls(room.properties.walls);
     room.properties.doors = normalizeRoomOpenings(room.properties.doors);
     room.properties.windows = normalizeRoomOpenings(room.properties.windows);
@@ -5022,7 +5166,13 @@ function buildDefaultRoomWalls() {
 }
 
 function buildDefaultRoomDoors() {
-    return [{ edge: "bottom", start_ratio: 0.38, end_ratio: 0.62 }];
+    return [{
+        edge: "bottom",
+        start_ratio: 0.38,
+        end_ratio: 0.62,
+        door_type: "single",
+        swing_direction: "inward",
+    }];
 }
 
 function buildDefaultRoomWindows() {
@@ -5065,7 +5215,17 @@ function normalizeRoomOpenings(items) {
         ...(Number.isInteger(Number(item.edge_index)) ? { edge_index: Number(item.edge_index) } : {}),
         start_ratio: roundValue(Number(item.start_ratio ?? 0.2), 4),
         end_ratio: roundValue(Number(item.end_ratio ?? 0.8), 4),
+        ...(item.door_type ? { door_type: getDoorType(item) } : {}),
+        ...(item.swing_direction ? { swing_direction: getDoorSwingDirection(item) } : {}),
     }));
+}
+
+function getDoorType(opening) {
+    return String(opening?.door_type || "single").toLowerCase() === "double" ? "double" : "single";
+}
+
+function getDoorSwingDirection(opening) {
+    return String(opening?.swing_direction || "inward").toLowerCase() === "outward" ? "outward" : "inward";
 }
 
 function enforceStairConstraints(room, houseWidth, houseHeight) {
@@ -5358,7 +5518,10 @@ function formatRoomSegmentSummary(items, kind) {
             : titleCase(String(item.edge || "top"));
         const start = `${Math.round(Number(item.start_ratio ?? 0) * 100)}%`;
         const end = `${Math.round(Number(item.end_ratio ?? 1) * 100)}%`;
-        return `${index + 1}. ${edge} ${start}-${end}`;
+        const doorDetails = kind === "doors"
+            ? ` ${titleCase(getDoorType(item))} ${titleCase(getDoorSwingDirection(item))}`
+            : "";
+        return `${index + 1}. ${edge} ${start}-${end}${doorDetails}`;
     }).join(" | ");
 }
 
@@ -5381,12 +5544,9 @@ function getRoomWallLength(room, wall) {
         return Math.abs(end - start) * edgeLength;
     }
     const isHorizontal = edge === "top" || edge === "bottom";
-    const ratioKey = isHorizontal ? "floor_width_ratio" : "floor_height_ratio";
     const dimensionKey = isHorizontal ? "width" : "height";
-    const ratio = Number(room?.properties?.[ratioKey] || 0);
-    const houseSpan = Number(house[dimensionKey] || 0);
     const fallbackSpan = Number(room?.properties?.[dimensionKey] || 0);
-    const roomSpan = houseSpan > 0 && ratio > 0 ? houseSpan * ratio : fallbackSpan;
+    const roomSpan = fallbackSpan > 0 ? fallbackSpan : getRoomOuterDimension(room, dimensionKey);
     const start = clamp(Number(wall?.start_ratio ?? 0), 0, 1);
     const end = clamp(Number(wall?.end_ratio ?? 1), 0, 1);
     return Math.abs(end - start) * roomSpan;
@@ -5425,10 +5585,70 @@ function convertRoomLengthToInches(value, linearUnit) {
     return value * 12;
 }
 
+function convertRoomInchesToLength(value, linearUnit) {
+    if (linearUnit === "meters") {
+        return value / 39.3701;
+    }
+    if (linearUnit === "centimeters") {
+        return value / 0.393701;
+    }
+    if (linearUnit === "inches") {
+        return value;
+    }
+    return value / 12;
+}
+
+function getRoomOuterDimension(room, dimension) {
+    const house = state.assessment?.objects?.housePlan?.properties || {};
+    const isWidth = dimension === "width";
+    const houseDimension = Number(isWidth ? house.width : house.height) || 0;
+    const ratio = Number(room?.properties?.[isWidth ? "floor_width_ratio" : "floor_height_ratio"] || 0);
+    return houseDimension > 0 && ratio > 0
+        ? houseDimension * ratio
+        : Number(room?.properties?.[dimension] || 0);
+}
+
+function getRoomDimensionWallAllowance(room, dimension) {
+    if (getRoomPolygonRatios(room).length >= 3) {
+        return 0;
+    }
+    const edges = dimension === "width" ? ["left", "right"] : ["top", "bottom"];
+    const walls = normalizeRoomWalls(room?.properties?.walls);
+    const allowanceInches = edges.reduce((total, edge) => {
+        const edgeWalls = walls.filter((wall) => String(wall.edge || "top") === edge);
+        const thickness = edgeWalls.length
+            ? Math.max(...edgeWalls.map((wall) => getWallThicknessInches(wall)))
+            : 0;
+        return total + thickness;
+    }, 0);
+    return convertRoomInchesToLength(
+        allowanceInches,
+        String(room?.properties?.linear_unit || "feet"),
+    );
+}
+
 function buildRoomSegmentEditor(kind, items, room) {
     const list = Array.isArray(items) ? items : [];
     const polygonPointCount = getRoomPolygonRatios(room).length;
     const rows = list.map((item, index) => {
+        const doorType = kind === "doors"
+            ? `
+                <select data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="door_type"
+                    aria-label="Door type">
+                    <option value="single" ${getDoorType(item) === "single" ? "selected" : ""}>Single Door</option>
+                    <option value="double" ${getDoorType(item) === "double" ? "selected" : ""}>Double Door</option>
+                </select>
+            `
+            : "";
+        const doorSwingDirection = kind === "doors"
+            ? `
+                <select data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="swing_direction"
+                    aria-label="Door swing direction">
+                    <option value="inward" ${getDoorSwingDirection(item) === "inward" ? "selected" : ""}>Swing Inward</option>
+                    <option value="outward" ${getDoorSwingDirection(item) === "outward" ? "selected" : ""}>Swing Outward</option>
+                </select>
+            `
+            : "";
         const length = kind === "walls"
             ? `<span class="segment-length">
                 Length: <strong>${escapeHtml(formatRoomWallLength(room, item))}</strong>
@@ -5458,6 +5678,8 @@ function buildRoomSegmentEditor(kind, items, room) {
                 <input type="number" min="0" max="100" step="1"
                     value="${Math.round(Number(item.end_ratio ?? 1) * 100)}"
                     data-segment-kind="${kind}" data-segment-index="${index}" data-segment-field="end_ratio" />
+                ${doorType}
+                ${doorSwingDirection}
                 <button type="button" class="segment-remove"
                     data-segment-action="remove" data-segment-kind="${kind}" data-segment-index="${index}">Remove</button>
             </div>
@@ -5495,14 +5717,15 @@ function buildRoomDimensionEditor(room, dimension, value, properties) {
     const position = Number(room.properties[isWidth ? "floor_x_ratio" : "floor_y_ratio"] || 0);
     const minRatio = isWidth ? limits.minWidth : limits.minHeight;
     const maxRatio = isWidth ? limits.maxWidth(position) : limits.maxHeight(position);
+    const wallAllowance = getRoomDimensionWallAllowance(room, dimension);
     const unit = String(properties.linear_unit || room.properties.linear_unit || "feet");
     const numericValue = Number(value || 0);
     return `
         <div class="room-dimension-editor">
-            <input type="number" min="${roundValue(minRatio * houseDimension, 2)}"
-                max="${roundValue(maxRatio * houseDimension, 2)}" step="0.1"
+            <input type="number" min="${roundValue(Math.max((minRatio * houseDimension) - wallAllowance, 0), 2)}"
+                max="${roundValue(Math.max((maxRatio * houseDimension) - wallAllowance, 0), 2)}" step="0.1"
                 value="${numericValue.toFixed(2)}" data-property-editor="room-dimension"
-                data-room-dimension="${dimension}" aria-label="Room ${dimension} in ${escapeHtml(unit)}" />
+                data-room-dimension="${dimension}" aria-label="Interior room ${dimension} in ${escapeHtml(unit)}" />
             <span class="room-dimension-unit">${escapeHtml(unit)}</span>
         </div>
     `;
@@ -5634,6 +5857,10 @@ function handlePropertyEditorChange(event) {
             list[index].edge = edgeValue;
             delete list[index].edge_index;
         }
+    } else if (field === "door_type" && kind === "doors") {
+        list[index].door_type = String(target.value || "single") === "double" ? "double" : "single";
+    } else if (field === "swing_direction" && kind === "doors") {
+        list[index].swing_direction = String(target.value || "inward") === "outward" ? "outward" : "inward";
     } else if (field === "thickness_inches" && kind === "walls") {
         list[index].thickness_inches = roundValue(clamp(Number(target.value || 6), 1, 24), 2);
     } else {
@@ -5647,6 +5874,9 @@ function handlePropertyEditorChange(event) {
         }
     }
     room.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    if (kind === "walls") {
+        syncRoomPhysicalProperties(room);
+    }
     renderSelection();
 }
 
@@ -5693,6 +5923,9 @@ function addInteriorRoomSegment(kind) {
         : [];
     list.push(buildDefaultSegment(kind, sourceRoom));
     sourceRoom.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    if (kind === "walls") {
+        syncRoomPhysicalProperties(sourceRoom);
+    }
     state.selectedInteriorFixtureId = null;
     state.selectedInteriorSegmentKind = kind;
     state.selectedInteriorSegmentIndex = list.length - 1;
@@ -5715,6 +5948,9 @@ function removeSelectedInteriorRoomSegment() {
     }
     list.splice(index, 1);
     sourceRoom.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    if (kind === "walls") {
+        syncRoomPhysicalProperties(sourceRoom);
+    }
     state.selectedInteriorSegmentIndex = list.length ? Math.min(index, list.length - 1) : null;
     if (!list.length) {
         state.selectedInteriorSegmentKind = null;
@@ -5723,7 +5959,7 @@ function removeSelectedInteriorRoomSegment() {
 }
 
 function applyInteriorSegmentField(field, rawValue) {
-    if (!["edge", "start_ratio", "end_ratio", "thickness_inches"].includes(field)) {
+    if (!["edge", "start_ratio", "end_ratio", "thickness_inches", "door_type", "swing_direction"].includes(field)) {
         return;
     }
     const design = getSelectedObject();
@@ -5747,6 +5983,10 @@ function applyInteriorSegmentField(field, rawValue) {
             segment.edge = ["top", "right", "bottom", "left"].includes(rawValue) ? rawValue : "top";
             delete segment.edge_index;
         }
+    } else if (field === "door_type" && kind === "doors") {
+        segment.door_type = String(rawValue || "single") === "double" ? "double" : "single";
+    } else if (field === "swing_direction" && kind === "doors") {
+        segment.swing_direction = String(rawValue || "inward") === "outward" ? "outward" : "inward";
     } else if (field === "thickness_inches" && kind === "walls") {
         segment.thickness_inches = roundValue(clamp(Number(rawValue || 6), 1, 24), 2);
     } else {
@@ -5759,6 +5999,9 @@ function applyInteriorSegmentField(field, rawValue) {
         }
     }
     sourceRoom.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    if (kind === "walls") {
+        syncRoomPhysicalProperties(sourceRoom);
+    }
     refreshInteriorDesignWindow();
 }
 
@@ -5953,6 +6196,9 @@ function handlePropertyEditorClick(event) {
         list.splice(index, 1);
     }
     room.properties[kind] = kind === "walls" ? normalizeRoomWalls(list) : normalizeRoomOpenings(list);
+    if (kind === "walls") {
+        syncRoomPhysicalProperties(room);
+    }
     renderSelection();
 }
 
@@ -5962,7 +6208,14 @@ function buildDefaultSegment(kind, room = null) {
         return { edge: "top", ...polygonEdge, start_ratio: 0, end_ratio: 1, thickness_inches: DEFAULT_WALL_THICKNESS_INCHES };
     }
     if (kind === "doors") {
-        return { edge: "bottom", ...polygonEdge, start_ratio: 0.38, end_ratio: 0.62 };
+        return {
+            edge: "bottom",
+            ...polygonEdge,
+            start_ratio: 0.38,
+            end_ratio: 0.62,
+            door_type: "single",
+            swing_direction: "inward",
+        };
     }
     return { edge: "top", ...polygonEdge, start_ratio: 0.2, end_ratio: 0.8 };
 }
@@ -6010,7 +6263,10 @@ function applyRoomDimensionValue(room, dimension, rawValue) {
     const limits = getRoomResizeLimits(room);
     const minRatio = isWidth ? limits.minWidth : limits.minHeight;
     const maxRatio = isWidth ? limits.maxWidth(position) : limits.maxHeight(position);
-    const requestedRatio = Number.isFinite(rawValue) ? rawValue / houseDimension : minRatio;
+    const wallAllowance = getRoomDimensionWallAllowance(room, dimension);
+    const requestedRatio = Number.isFinite(rawValue)
+        ? (rawValue + wallAllowance) / houseDimension
+        : minRatio;
 
     const axis = isWidth ? "x" : "y";
     const nextRatio = clamp(snapFloorRatioToInchGrid(requestedRatio, axis), minRatio, maxRatio);
